@@ -34,6 +34,5 @@ func readMultipart(w http.ResponseWriter, r *http.Request) (types.FileRequest, e
 	in.Filename = header.Filename
 	in.Sheet = r.FormValue("sheet")
 	in.Operator = r.FormValue("operator")
-	in.AccountID = r.FormValue("account_id")
 	return in, nil
 }

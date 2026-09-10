@@ -4,6 +4,7 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"time"
 
 	reportlogic "github.com/chemanyu/adn-report-ai/internal/logic/report"
 	"github.com/chemanyu/adn-report-ai/internal/middleware"
@@ -47,7 +48,7 @@ func ListHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		page, _ := strconv.Atoi(q.Get("page"))
-		in := types.ListUploadsRequest{Page: page, Query: q.Get("q"), AccountID: q.Get("account_id")}
+		in := types.ListUploadsRequest{Page: page, Query: q.Get("q")}
 		result, err := reportlogic.NewReportLogic(r.Context(), svcCtx).List(in, middleware.CurrentUser(r.Context()))
 		if err != nil {
 			response.Error(w, err)
@@ -75,10 +76,9 @@ func DownloadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			response.Error(w, err)
 			return
 		}
-		defer file.File.Close()
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Name}))
-		http.ServeContent(w, r, file.Name, file.ModTime, file.File)
+		http.ServeContent(w, r, file.Name, time.Time{}, file.File)
 	}
 }
 func TemplateHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {

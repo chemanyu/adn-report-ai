@@ -13,19 +13,21 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-var Required = []string{"日期", "结算数", "结算单价", "结算金额"}
+var Required = []string{"代理商", "广告主", "日期", "任务名称", "结算数", "结算单价", "结算金额"}
 
 const MaxRows = 20000
 
 type Row struct {
-	SourceRow int               `json:"source_row"`
-	Date      string            `json:"date"`
-	Count     string            `json:"count"`
-	Price     string            `json:"price"`
-	Amount    string            `json:"amount"`
-	Extra     map[string]string `json:"extra"`
-	Source    []string          `json:"source"`
-	Values    []string          `json:"values"`
+	Agency     string            `json:"agency"`
+	Advertiser string            `json:"advertiser"`
+	TaskName   string            `json:"task_name"`
+	SourceRow  int               `json:"source_row"`
+	Date       string            `json:"date"`
+	Count      string            `json:"count"`
+	Price      string            `json:"price"`
+	Amount     string            `json:"amount"`
+	Extra      map[string]string `json:"extra"`
+	Values     []string          `json:"values"`
 }
 type Result struct {
 	Sheets   []string `json:"sheets"`
@@ -104,6 +106,7 @@ func Read(data []byte, sheet string) (*Result, error) {
 		return out, nil
 	}
 	total := new(big.Rat)
+	seen := map[[4]string]int{}
 	line := 1
 	for it.Next() {
 		line++
@@ -130,7 +133,7 @@ func Read(data []byte, sheet string) (*Result, error) {
 		}
 		source := make([]string, len(headers))
 		copy(source, cells)
-		row := Row{SourceRow: line, Extra: map[string]string{}, Source: source, Values: append([]string(nil), source...)}
+		row := Row{SourceRow: line, Extra: map[string]string{}, Values: append([]string(nil), source...)}
 		for i, v := range source {
 			if len(v) > 32767 {
 				return nil, fmt.Errorf("第 %d 行单元格过长", line)
@@ -145,6 +148,19 @@ func Read(data []byte, sheet string) (*Result, error) {
 			if !fixed {
 				row.Extra[headers[i]] = v
 			}
+		}
+		for _, field := range []struct {
+			key    string
+			target *string
+		}{
+			{"代理商", &row.Agency}, {"广告主", &row.Advertiser}, {"任务名称", &row.TaskName},
+		} {
+			value := strings.TrimSpace(source[positions[field.key]])
+			if value == "" || len([]rune(value)) > 255 {
+				out.Errors = append(out.Errors, fmt.Sprintf("第 %d 行「%s」：不能为空，最多 255 字", line, field.key))
+			}
+			*field.target = value
+			row.Values[positions[field.key]] = value
 		}
 		row.Date, e = parseDate(source[positions["日期"]], use1904)
 		if e != nil {
@@ -163,6 +179,14 @@ func Read(data []byte, sheet string) (*Result, error) {
 			}
 		}
 		row.Values[positions["日期"]] = row.Date
+		if row.Agency != "" && row.Advertiser != "" && row.Date != "" && row.TaskName != "" {
+			key := [4]string{row.Agency, row.Advertiser, row.Date, row.TaskName}
+			if first, exists := seen[key]; exists {
+				out.Errors = append(out.Errors, fmt.Sprintf("第 %d 行与第 %d 行的代理商、广告主、日期、任务名称重复，请合并或修正后上传", line, first))
+			} else {
+				seen[key] = line
+			}
+		}
 		if row.Amount != "" {
 			n, _ := new(big.Rat).SetString(row.Amount)
 			total.Add(total, n)
@@ -195,8 +219,11 @@ var number = regexp.MustCompile(`^[+-]?(?:[0-9]+)(?:\.[0-9]{1,6})?$`)
 
 func decimal(s string) (string, error) {
 	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
 	if !number.MatchString(s) {
-		return "", fmt.Errorf("必须是数字，最多 6 位小数，不支持空值、千分位或公式错误")
+		return "", fmt.Errorf("必须是数字，最多 6 位小数，不支持千分位或公式错误")
 	}
 	integer := strings.TrimLeft(strings.Split(strings.TrimLeft(s, "+-"), ".")[0], "0")
 	if len(integer) > 18 {

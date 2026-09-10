@@ -25,18 +25,17 @@ const { state, ...actions } = inject('workspace')
       </button>
     </div>
     <div class="dialog-content">
+      <p class="muted small">这里展示当前有效明细；已由后续上传更新的行归入最新批次。</p>
       <div id="detail-meta" class="detail-meta">
         <template v-if="state.detail"
           ><div>
-            <span>ADN 账户</span>{{ state.detail.upload.account }} ·
-            {{ state.detail.upload.account_code }}
+            <span>广告主</span>{{ state.detail.upload.advertisers?.join('、') || '—' }}
           </div>
           <div><span>运营人员</span>{{ state.detail.upload.operator }}</div>
           <div><span>上传人员</span>{{ state.detail.upload.uploader }}</div>
           <div><span>工作表</span>{{ state.detail.upload.sheet }}</div>
           <div>
-            <span>结算日期</span>{{ state.detail.upload.date_from }} 至
-            {{ state.detail.upload.date_to }}
+            <span>结算日期</span>{{ state.detail.upload.date_from ? `${state.detail.upload.date_from} 至 ${state.detail.upload.date_to}` : '无当前有效明细' }}
           </div>
           <div><span>结算金额</span>{{ actions.money(state.detail.upload.total_amount) }} 元</div>
           <div>
@@ -54,7 +53,7 @@ const { state, ...actions } = inject('workspace')
           class="button"
           v-if="state.detail"
           :href="actions.sitePath(`/api/uploads/${state.detail.upload.id}/csv`)"
-          >↓ 下载 CSV</a
+          >↓ 下载当前明细 CSV</a
         >
       </div>
       <div class="table-wrap detail-table">

@@ -3,7 +3,6 @@ package handler
 import (
 	"net/http"
 
-	"github.com/chemanyu/adn-report-ai/internal/handler/account"
 	"github.com/chemanyu/adn-report-ai/internal/handler/auth"
 	"github.com/chemanyu/adn-report-ai/internal/handler/report"
 	"github.com/chemanyu/adn-report-ai/internal/middleware"
@@ -22,8 +21,6 @@ func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext) {
 	server.AddRoutes(rest.WithMiddleware(protected, []rest.Route{
 		{Method: http.MethodPost, Path: "/api/auth/logout", Handler: auth.LogoutHandler(svcCtx)},
 		{Method: http.MethodGet, Path: "/api/me", Handler: auth.MeHandler(svcCtx)},
-		{Method: http.MethodGet, Path: "/api/accounts", Handler: account.ListHandler(svcCtx)},
-		{Method: http.MethodPost, Path: "/api/accounts", Handler: account.CreateHandler(svcCtx)},
 		{Method: http.MethodGet, Path: "/api/uploads", Handler: report.ListHandler(svcCtx)},
 		{Method: http.MethodGet, Path: "/api/uploads/:id", Handler: report.DetailHandler(svcCtx)},
 		{Method: http.MethodGet, Path: "/api/uploads/:id/csv", Handler: report.DownloadHandler(svcCtx)},

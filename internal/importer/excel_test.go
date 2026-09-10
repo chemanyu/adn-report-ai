@@ -27,7 +27,7 @@ func workbook(t *testing.T, rows [][]any) []byte {
 	return b.Bytes()
 }
 func TestImportPreservesExtraAndExactMoney(t *testing.T) {
-	data := workbook(t, [][]any{{"日期", "结算数", "结算单价", "结算金额", "广告位ID", "备注"}, {46257, "55", "0.3", "16.5", "00123", "含,逗号\n换行"}, {"2026/8/24", "1", "0.1", "0.1", "9007199254740993", ""}})
+	data := workbook(t, [][]any{{"日期", "结算数", "结算单价", "结算金额", "代理商", "广告主", "任务名称", "广告位ID", "备注"}, {46257, "55", "0.3", "16.5", "代理甲", "广告甲", "任务甲", "00123", "含,逗号\n换行"}, {"2026/8/24", "1", "0.1", "0.1", "代理甲", "广告甲", "任务甲", "9007199254740993", ""}})
 	p, e := Read(data, "")
 	if e != nil {
 		t.Fatal(e)
@@ -46,7 +46,7 @@ func TestImportPreservesExtraAndExactMoney(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if rows[1][5] != "含,逗号\n换行" || rows[1][0] != "2026-08-23" || rows[1][4] != "00123" {
+	if rows[1][8] != "含,逗号\n换行" || rows[1][0] != "2026-08-23" || rows[1][7] != "00123" {
 		t.Fatal(rows)
 	}
 }
@@ -56,13 +56,13 @@ func TestValidation(t *testing.T) {
 		rows [][]any
 		want string
 	}{
-		{"missing", [][]any{{"日期", "结算金额"}, {"2026-08-23", 1}}, "缺少必填列：结算数"},
+		{"missing", [][]any{{"日期", "结算金额", "代理商", "广告主", "任务名称"}, {"2026-08-23", 1}}, "缺少必填列：结算数"},
 		{"duplicate", [][]any{{"日期", "结算数", "结算单价", "结算金额", " 日期"}}, "重复列名"},
-		{"invalid date", [][]any{{"日期", "结算数", "结算单价", "结算金额"}, {"2026-02-30", 1, 1, 1}}, "第 2 行「日期」"},
-		{"missing number", [][]any{{"日期", "结算数", "结算单价", "结算金额"}, {"2026-08-23", "", 1, 1}}, "第 2 行「结算数」"},
-		{"precision", [][]any{{"日期", "结算数", "结算单价", "结算金额"}, {"2026-08-23", 1, "0.1234567", 1}}, "最多 6 位小数"},
-		{"extra data", [][]any{{"日期", "结算数", "结算单价", "结算金额"}, {"2026-08-23", 1, 1, 1, "orphan"}}, "无列名"},
-		{"empty", [][]any{{"日期", "结算数", "结算单价", "结算金额"}}, "没有数据行"},
+		{"invalid date", [][]any{{"日期", "结算数", "结算单价", "结算金额", "代理商", "广告主", "任务名称"}, {"2026-02-30", 1, 1, 1, "代理甲", "广告甲", "任务甲"}}, "第 2 行「日期」"},
+		{"invalid number", [][]any{{"日期", "结算数", "结算单价", "结算金额", "代理商", "广告主", "任务名称"}, {"2026-08-23", "oops", 1, 1, "代理甲", "广告甲", "任务甲"}}, "第 2 行「结算数」"},
+		{"precision", [][]any{{"日期", "结算数", "结算单价", "结算金额", "代理商", "广告主", "任务名称"}, {"2026-08-23", 1, "0.1234567", 1, "代理甲", "广告甲", "任务甲"}}, "最多 6 位小数"},
+		{"extra data", [][]any{{"日期", "结算数", "结算单价", "结算金额", "代理商", "广告主", "任务名称"}, {"2026-08-23", 1, 1, 1, "代理甲", "广告甲", "任务甲", "orphan"}}, "无列名"},
+		{"empty", [][]any{{"日期", "结算数", "结算单价", "结算金额", "代理商", "广告主", "任务名称"}}, "没有数据行"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -77,12 +77,12 @@ func TestValidation(t *testing.T) {
 	}
 }
 func TestDecimalBoundaries(t *testing.T) {
-	for _, value := range []string{"NaN", "Inf", "1e10", "1,000", "1000000000000000000", ".5", ""} {
+	for _, value := range []string{"NaN", "Inf", "1e10", "1,000", "1000000000000000000", ".5"} {
 		if _, e := decimal(value); e == nil {
 			t.Errorf("accepted %q", value)
 		}
 	}
-	for _, value := range []string{"999999999999999999.999999", "-0.100000", "+1.25", "0001"} {
+	for _, value := range []string{"999999999999999999.999999", "-0.100000", "+1.25", "0001", "", "  "} {
 		if _, e := decimal(value); e != nil {
 			t.Errorf("rejected %q: %v", value, e)
 		}
@@ -94,8 +94,8 @@ func TestWorkbook1904AndSheetSelection(t *testing.T) {
 	v := true
 	f.SetWorkbookProps(&excelize.WorkbookPropsOptions{Date1904: &v})
 	f.NewSheet("结算明细")
-	headers := []any{"日期", "结算数", "结算单价", "结算金额"}
-	row := []any{1, 1, 1, 1}
+	headers := []any{"日期", "结算数", "结算单价", "结算金额", "代理商", "广告主", "任务名称"}
+	row := []any{1, 1, 1, 1, "代理甲", "广告甲", "任务甲"}
 	f.SetSheetRow("结算明细", "A1", &headers)
 	f.SetSheetRow("结算明细", "A2", &row)
 	b, _ := f.WriteToBuffer()
@@ -130,5 +130,38 @@ func TestProvidedExamplesRequireStandardColumns(t *testing.T) {
 			}
 			t.Log(strings.Join(parsed.Errors, "；"))
 		})
+	}
+}
+
+func TestBusinessKeyAndNullableNumbers(t *testing.T) {
+	headers := []any{"代理商", "广告主", "日期", "任务名称", "结算数", "结算单价", "结算金额"}
+	rows := [][]any{headers, {" 代理甲 ", "广告甲", "2026-09-10", "任务甲", "", "0", ""}, {"代理甲", "广告甲", "2026-09-11", "任务甲", "0", "", "0"}}
+	p, err := Read(workbook(t, rows), "")
+	if err != nil || len(p.Errors) > 0 {
+		t.Fatalf("%+v %v", p, err)
+	}
+	if p.Rows[0].Agency != "代理甲" || p.Rows[0].Count != "" || p.Rows[0].Price != "0.000000" || p.Rows[0].Amount != "" || p.Rows[1].Count != "0.000000" || p.Total != "0.000000" {
+		t.Fatalf("nullable values lost: %+v", p)
+	}
+	raw, err := p.CSV()
+	if err != nil {
+		t.Fatal(err)
+	}
+	csvRows, err := csv.NewReader(strings.NewReader(strings.TrimPrefix(string(raw), "\ufeff"))).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if csvRows[1][4] != "" || csvRows[1][5] != "0.000000" || csvRows[1][6] != "" {
+		t.Fatalf("CSV changed empty cells: %v", csvRows)
+	}
+	rows[2][2] = "2026/9/10"
+	p, err = Read(workbook(t, rows), "")
+	if err != nil || !strings.Contains(strings.Join(p.Errors, " "), "重复") {
+		t.Fatalf("same normalized key accepted: %+v %v", p, err)
+	}
+	rows[2][0] = " "
+	p, err = Read(workbook(t, rows), "")
+	if err != nil || !strings.Contains(strings.Join(p.Errors, " "), "不能为空") {
+		t.Fatalf("empty key accepted: %+v %v", p, err)
 	}
 }

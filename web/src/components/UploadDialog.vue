@@ -48,7 +48,10 @@ const { state, ...actions } = inject('workspace')
             ><span class="muted small">支持 .xlsx · 最大 20 MB · 最多 20,000 行</span></label
           >
           <div class="notice">
-            必须包含：<b>日期、结算数、结算单价、结算金额</b>。其他列将原样保留，首行为表头。
+            必须包含：<b>代理商、广告主、日期、任务名称、结算数、结算单价、结算金额</b>。结算三列允许为 0 或空，广告主直接作为业务账户，其他列原样保留，首行为表头。
+          </div>
+          <div class="notice">
+            仅在本人的数据内，按代理商、广告主、日期、任务名称匹配更新，未匹配则新增；文件名不参与匹配，本次文件未包含的旧记录保留。
           </div>
           <label id="sheet-label" v-if="state.sheets.length"
             >选择工作表<select id="sheet" v-model="state.sheet" @change="actions.preview">
@@ -65,26 +68,6 @@ const { state, ...actions } = inject('workspace')
                 required
                 placeholder="填写负责此次结算的运营人员"
                 v-model="state.operator" /></label
-            ><label
-              >ADN 账户<span class="select-action"
-                ><select id="upload-account" required v-model="state.accountID">
-                  <option value="">请选择账户</option>
-                  <option
-                    v-for="account in state.accounts"
-                    :key="account.id"
-                    :value="String(account.id)"
-                  >
-                    {{ account.name }} · {{ account.code }}
-                  </option></select
-                ><button
-                  id="inline-account"
-                  class="button"
-                  type="button"
-                  @click="actions.openAccount"
-                >
-                  ＋ 新增
-                </button></span
-              ></label
             >
           </div>
           <div id="validation" role="status" aria-live="polite">

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/chemanyu/adn-report-ai/internal/errcode"
@@ -24,17 +23,6 @@ func (l *ReportLogic) Upload(in types.FileRequest, u types.User) (*types.UploadR
 	operator := strings.TrimSpace(in.Operator)
 	if operator == "" || len([]rune(operator)) > 191 {
 		return nil, errcode.New(400, "请填写运营人员，最多 191 字")
-	}
-	account, err := strconv.ParseInt(in.AccountID, 10, 64)
-	if err != nil || account < 1 {
-		return nil, errcode.New(400, "请选择 ADN 账户")
-	}
-	exists, err := l.svcCtx.AccountModel.Exists(l.ctx, account)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errcode.New(400, "ADN 账户不存在")
 	}
 	csvData, err := p.CSV()
 	if err != nil {
@@ -66,18 +54,15 @@ func (l *ReportLogic) Upload(in types.FileRequest, u types.User) (*types.UploadR
 	}
 	rows := make([]model.SettlementRow, 0, len(p.Rows))
 	for _, row := range p.Rows {
-		rows = append(rows, model.SettlementRow{SourceRow: row.SourceRow, Date: row.Date, Count: row.Count, Price: row.Price, Amount: row.Amount, Extra: row.Extra, Source: row.Source})
+		rows = append(rows, model.SettlementRow{SourceRow: row.SourceRow, Agency: row.Agency, Advertiser: row.Advertiser, TaskName: row.TaskName, Date: row.Date, Count: row.Count, Price: row.Price, Amount: row.Amount, Extra: row.Extra})
 	}
-	id, err := l.svcCtx.UploadModel.InsertWithRows(l.ctx, model.NewUpload{
-		Upload: model.Upload{UserID: u.ID, Uploader: u.Name, Operator: operator, AccountID: account, Filename: name, Sheet: p.Sheet, Columns: columns, RowCount: len(p.Rows), Total: p.Total, DateFrom: p.DateFrom, DateTo: p.DateTo, CSVPath: csvName},
+	saved, err := l.svcCtx.UploadModel.SaveWithRows(l.ctx, model.NewUpload{
+		Upload: model.Upload{UserID: u.ID, Uploader: u.Name, Operator: operator, Filename: name, Sheet: p.Sheet, Columns: columns, RowCount: len(p.Rows), Total: p.Total, DateFrom: p.DateFrom, DateTo: p.DateTo, CSVPath: csvName},
 		Hash:   security.Hash(string(in.Data)), Rows: rows,
 	})
-	if model.IsDuplicate(err) {
-		return nil, errcode.New(409, "你已向该 ADN 账户上传过相同文件的此工作表，请查看已有记录")
-	}
 	if err != nil {
 		return nil, err
 	}
 	committed = true
-	return &types.UploadResponse{ID: id, RowCount: len(p.Rows), Total: p.Total}, nil
+	return &types.UploadResponse{ID: saved.ID, Inserted: saved.Inserted, Updated: saved.Updated, RowCount: len(p.Rows), Total: p.Total}, nil
 }

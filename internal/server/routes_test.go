@@ -35,6 +35,7 @@ func TestRESTRoutingAndStaticAssets(t *testing.T) {
 		{"GET", "/assets/app.js", 200, "Vue bundle"},
 		{"GET", "/src/App.vue", 404, ""},
 		{"GET", "/api/missing", 404, "接口不存在"},
+		{"GET", "/api/accounts", 404, "接口不存在"},
 		{"GET", "/api/me", 401, ""},
 		{"GET", "/api/uploads/123", 401, ""},
 		{"GET", "/api/uploads/123/csv", 401, ""},

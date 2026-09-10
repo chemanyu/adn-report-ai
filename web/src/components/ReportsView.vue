@@ -4,7 +4,7 @@ const { state, ...actions } = inject('workspace')
 </script>
 
 <template>
-  <section id="reports-view" class="page" v-show="state.view === 'reports'">
+  <section id="reports-view" class="page">
     <div class="page-heading">
       <div>
         <span class="eyebrow">SETTLEMENT REPORTS</span>
@@ -35,9 +35,9 @@ const { state, ...actions } = inject('workspace')
         ><small>当前筛选范围合计 · 元</small>
       </article>
       <article>
-        <span>关联 ADN 账户</span
-        ><strong id="stat-accounts">{{ actions.number(state.records.account_count) }}</strong
-        ><small>个账户有结算记录</small>
+        <span>广告主</span
+        ><strong id="stat-advertisers">{{ actions.number(state.records.advertiser_count) }}</strong
+        ><small>个广告主有有效记录</small>
       </article>
     </div>
     <div class="card">
@@ -49,28 +49,19 @@ const { state, ...actions } = inject('workspace')
           <p id="record-hint" class="muted small">
             {{
               state.user.admin
-                ? '全部成员的上传记录，按最近上传时间排序'
-                : '我的上传记录，按最近上传时间排序'
+                ? '全部成员的上传记录；行数、金额和 CSV 为当前有效数据'
+                : '我的上传记录；行数、金额和 CSV 为当前有效数据'
             }}
           </p>
         </div>
         <form id="filter-form" class="filters" @submit.prevent="actions.filterRecords">
           <input
             id="search"
-            placeholder="搜索文件、运营或上传人员"
+            placeholder="搜索文件、广告主、代理商或人员"
             aria-label="搜索记录"
             v-model="state.filters.q"
-          /><select
-            id="filter-account"
-            aria-label="按账户筛选"
-            v-model="state.filters.account_id"
-            @change="actions.filterRecords"
-          >
-            <option value="">全部 ADN 账户</option>
-            <option v-for="account in state.accounts" :key="account.id" :value="String(account.id)">
-              {{ account.name }} · {{ account.code }}
-            </option></select
-          ><button class="button" type="submit">筛选</button>
+          />
+          <button class="button" type="submit">筛选</button>
         </form>
       </div>
       <div id="list-error" class="notice error" v-if="state.listError">{{ state.listError }}</div>
@@ -79,7 +70,7 @@ const { state, ...actions } = inject('workspace')
           <thead>
             <tr>
               <th>结算文件</th>
-              <th>ADN 账户</th>
+              <th>广告主</th>
               <th>运营 / 上传人员</th>
               <th>数据行数</th>
               <th>结算金额（元）</th>
@@ -104,7 +95,7 @@ const { state, ...actions } = inject('workspace')
                 </div>
               </td>
               <td>
-                {{ record.account }}<small>{{ record.account_code }}</small>
+                {{ record.advertisers?.join('、') || '—' }}
               </td>
               <td>
                 {{ record.operator }}<small>上传：{{ record.uploader }}</small>
@@ -121,7 +112,7 @@ const { state, ...actions } = inject('workspace')
                   >
                     查看明细</button
                   ><a class="link-button" :href="actions.sitePath(`/api/uploads/${record.id}/csv`)"
-                    >CSV ↓</a
+                    >当前 CSV ↓</a
                   >
                 </div>
               </td>
@@ -137,15 +128,15 @@ const { state, ...actions } = inject('workspace')
         <div class="empty-icon">▤</div>
         <h3>
           {{
-            state.filters.q || state.filters.account_id
+            state.filters.q
               ? '没有匹配的上传记录'
               : '从第一份结算文件开始'
           }}
         </h3>
         <p>
           {{
-            state.filters.q || state.filters.account_id
-              ? '试试其他关键词，或切换账户筛选。'
+            state.filters.q
+              ? '试试其他文件名、广告主或人员关键词。'
               : '上传 Excel，校验后自动保存 CSV 和结算明细。'
           }}
         </p>

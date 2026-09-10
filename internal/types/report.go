@@ -12,9 +12,7 @@ type Upload struct {
 	UserID      int64           `json:"user_id"`
 	Uploader    string          `json:"uploader"`
 	Operator    string          `json:"operator"`
-	AccountID   int64           `json:"account_id"`
-	Account     string          `json:"account"`
-	AccountCode string          `json:"account_code"`
+	Advertisers []string        `json:"advertisers"`
 	Filename    string          `json:"filename"`
 	Sheet       string          `json:"sheet"`
 	Columns     json.RawMessage `json:"columns"`
@@ -28,16 +26,14 @@ type Upload struct {
 
 // FileRequest contains the decoded multipart file and form fields.
 type FileRequest struct {
-	Data      []byte
-	Filename  string
-	Sheet     string
-	Operator  string
-	AccountID string
+	Data     []byte
+	Filename string
+	Sheet    string
+	Operator string
 }
 type ListUploadsRequest struct {
-	Page      int
-	Query     string
-	AccountID string
+	Page  int
+	Query string
 }
 type UploadDetailRequest struct {
 	ID   string
@@ -49,18 +45,20 @@ type PreviewResponse struct {
 	Valid    bool             `json:"valid"`
 }
 type UploadResponse struct {
+	Inserted int    `json:"inserted_rows"`
+	Updated  int    `json:"updated_rows"`
 	ID       int64  `json:"id"`
 	RowCount int    `json:"row_count"`
 	Total    string `json:"total_amount"`
 }
 type UploadListResponse struct {
-	Items        []Upload `json:"items"`
-	Total        int      `json:"total"`
-	Page         int      `json:"page"`
-	PageSize     int      `json:"page_size"`
-	RowCount     int      `json:"row_count"`
-	TotalAmount  string   `json:"total_amount"`
-	AccountCount int      `json:"account_count"`
+	Items           []Upload `json:"items"`
+	Total           int      `json:"total"`
+	Page            int      `json:"page"`
+	PageSize        int      `json:"page_size"`
+	RowCount        int      `json:"row_count"`
+	TotalAmount     string   `json:"total_amount"`
+	AdvertiserCount int      `json:"advertiser_count"`
 }
 type UploadDetailResponse struct {
 	Upload   Upload         `json:"upload"`

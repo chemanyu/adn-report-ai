@@ -7,7 +7,7 @@ const props = defineProps({
   rows: { type: Array, default: () => [] },
 })
 
-const requiredColumns = ['日期', '结算数', '结算单价', '结算金额']
+const requiredColumns = ['代理商', '广告主', '日期', '任务名称', '结算数', '结算单价', '结算金额']
 const displayColumns = computed(() => {
   const columns = props.columns.map((name, index) => ({ name, index }))
   const required = requiredColumns.flatMap((name) =>
@@ -19,7 +19,7 @@ const displayColumns = computed(() => {
 
 function displayValue(row, column) {
   const value = row.values[column.index]
-  return requiredColumns.slice(1).includes(column.name.trim())
+  return requiredColumns.slice(4).includes(column.name.trim())
     ? formatDecimal(value)
     : String(value ?? '')
 }

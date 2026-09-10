@@ -11,21 +11,15 @@ export function useWorkspace() {
     login: { username: 'admin', password: '' },
     loginError: '',
     loggingIn: false,
-    view: 'reports',
-    accounts: [],
-    filters: { q: '', account_id: '' },
+    filters: { q: '' },
     page: 1,
-    records: { items: [], total: 0, row_count: 0, total_amount: '0', account_count: 0 },
+    records: { items: [], total: 0, row_count: 0, total_amount: '0', advertiser_count: 0 },
     listError: '',
     listLoading: false,
-    account: { name: '', code: '' },
-    accountError: '',
-    savingAccount: false,
     file: null,
     sheet: '',
     sheets: [],
     operator: '',
-    accountID: '',
     preview: null,
     valid: false,
     previewLoading: false,
@@ -70,9 +64,6 @@ export function useWorkspace() {
       minute: '2-digit',
       hour12: false,
     })
-  async function loadAccounts() {
-    state.accounts = await api('/api/accounts')
-  }
   async function loadRecords() {
     const version = ++listVersion
     state.listError = ''
@@ -107,7 +98,6 @@ export function useWorkspace() {
         if (e.status !== 401) throw e
       }
       if (state.user) {
-        await loadAccounts()
         await loadRecords()
       }
     } catch (e) {
@@ -146,27 +136,6 @@ export function useWorkspace() {
       toast(e.message)
     }
   }
-  function openAccount() {
-    state.account = { name: '', code: '' }
-    state.accountError = ''
-    dialogs.account.showModal()
-  }
-  async function saveAccount() {
-    if (state.savingAccount) return
-    state.savingAccount = true
-    state.accountError = ''
-    try {
-      const account = await api('/api/accounts', { method: 'POST', body: state.account })
-      state.accounts = [account, ...state.accounts]
-      state.accountID = String(account.id)
-      closeDialog('account')
-      toast('ADN 账户已保存')
-    } catch (e) {
-      state.accountError = e.message
-    } finally {
-      state.savingAccount = false
-    }
-  }
   async function openUpload() {
     previewVersion++
     Object.assign(state, {
@@ -176,8 +145,7 @@ export function useWorkspace() {
       sheets: [],
       sheet: '',
       operator: state.user.name,
-      accountID: '',
-      uploadError: '',
+        uploadError: '',
       previewLoading: false,
       dragging: false,
     })
@@ -190,7 +158,6 @@ export function useWorkspace() {
     data.append('file', state.file)
     data.append('sheet', state.sheet)
     data.append('operator', state.operator.trim())
-    data.append('account_id', state.accountID)
     return data
   }
   async function preview() {
@@ -239,10 +206,9 @@ export function useWorkspace() {
       const result = await api('/api/uploads', { method: 'POST', body: formData() })
       dialogs.upload.close()
       state.page = 1
-      state.filters = { q: '', account_id: '' }
-      state.view = 'reports'
+      state.filters = { q: '' }
       await loadRecords()
-      toast(`上传成功，已保存 ${number(result.row_count)} 行结算数据`)
+      toast(`保存成功，新增 ${number(result.inserted_rows)} 行，更新 ${number(result.updated_rows)} 行`)
     } catch (e) {
       state.uploadError = e.message
     } finally {
@@ -293,8 +259,6 @@ export function useWorkspace() {
     datetime,
     login,
     logout,
-    openAccount,
-    saveAccount,
     openUpload,
     chooseFile,
     dropFile,

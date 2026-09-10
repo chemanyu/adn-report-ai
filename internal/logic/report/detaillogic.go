@@ -12,36 +12,45 @@ import (
 	"github.com/chemanyu/adn-report-ai/internal/types"
 )
 
-func (l *ReportLogic) findUpload(idText string, u types.User) (model.Upload, error) {
+func (l *ReportLogic) snapshot(idText string, u types.User, page int) (model.Upload, []model.SettlementRow, error) {
 	id, err := strconv.ParseInt(idText, 10, 64)
 	if err != nil || id < 1 {
-		return model.Upload{}, errcode.New(404, "记录不存在")
+		return model.Upload{}, nil, errcode.New(404, "记录不存在")
 	}
-	upload, err := l.svcCtx.UploadModel.FindScoped(l.ctx, id, ownerScope(u))
+	upload, rows, err := l.svcCtx.UploadModel.Snapshot(l.ctx, id, ownerScope(u), page)
 	if errors.Is(err, model.ErrNotFound) {
-		return upload, errcode.New(404, "记录不存在")
+		return upload, nil, errcode.New(404, "记录不存在")
 	}
-	return upload, err
+	return upload, rows, err
 }
 func (l *ReportLogic) Detail(in types.UploadDetailRequest, u types.User) (*types.UploadDetailResponse, error) {
-	upload, err := l.findUpload(in.ID, u)
-	if err != nil {
-		return nil, err
-	}
 	page := pageNumber(in.Page)
-	rows, err := l.svcCtx.UploadModel.Rows(l.ctx, upload.ID, page)
+	upload, rows, err := l.snapshot(in.ID, u, page)
 	if err != nil {
 		return nil, err
 	}
-	var columns []string
-	if err = json.Unmarshal(upload.Columns, &columns); err != nil {
+	result, err := detailRows(upload, rows)
+	if err != nil {
 		return nil, err
 	}
-	result := &types.UploadDetailResponse{Upload: types.Upload(upload), Rows: make([]importer.Row, 0, len(rows)), Page: page, PageSize: 100}
+	return &types.UploadDetailResponse{Upload: types.Upload(upload), Rows: result, Page: page, PageSize: 100}, nil
+}
+func detailRows(upload model.Upload, rows []model.SettlementRow) ([]importer.Row, error) {
+	var columns []string
+	if err := json.Unmarshal(upload.Columns, &columns); err != nil {
+		return nil, err
+	}
+	result := make([]importer.Row, 0, len(rows))
 	for _, row := range rows {
-		out := importer.Row{SourceRow: row.SourceRow, Date: row.Date, Count: row.Count, Price: row.Price, Amount: row.Amount, Extra: row.Extra, Source: row.Source, Values: make([]string, len(columns))}
+		out := importer.Row{SourceRow: row.SourceRow, Agency: row.Agency, Advertiser: row.Advertiser, TaskName: row.TaskName, Date: row.Date, Count: row.Count, Price: row.Price, Amount: row.Amount, Extra: row.Extra, Values: make([]string, len(columns))}
 		for i, col := range columns {
 			switch strings.TrimSpace(col) {
+			case "代理商":
+				out.Values[i] = row.Agency
+			case "广告主":
+				out.Values[i] = row.Advertiser
+			case "任务名称":
+				out.Values[i] = row.TaskName
 			case "日期":
 				out.Values[i] = row.Date
 			case "结算数":
@@ -54,7 +63,7 @@ func (l *ReportLogic) Detail(in types.UploadDetailRequest, u types.User) (*types
 				out.Values[i] = row.Extra[col]
 			}
 		}
-		result.Rows = append(result.Rows, out)
+		result = append(result, out)
 	}
 	return result, nil
 }

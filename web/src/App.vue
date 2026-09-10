@@ -3,9 +3,7 @@ import { provide } from 'vue'
 import { useWorkspace } from './composables/useWorkspace'
 import LoginView from './components/LoginView.vue'
 import ReportsView from './components/ReportsView.vue'
-import AccountsView from './components/AccountsView.vue'
 import UploadDialog from './components/UploadDialog.vue'
-import AccountDialog from './components/AccountDialog.vue'
 import DetailDialog from './components/DetailDialog.vue'
 
 const workspace = useWorkspace()
@@ -25,18 +23,9 @@ const { state, ...actions } = workspace
       <nav>
         <button
           id="nav-reports"
-          class="nav-item"
-          @click="state.view = 'reports'"
-          :class="{ active: state.view === 'reports' }"
+          class="nav-item active"
         >
           <span>▤</span> 结算文件</button
-        ><button
-          id="nav-accounts"
-          class="nav-item"
-          @click="state.view = 'accounts'"
-          :class="{ active: state.view === 'accounts' }"
-        >
-          <span>▦</span> ADN 账户</button
         ><button id="logout-mobile" class="nav-item mobile-only" @click="actions.logout">
           退出
         </button>
@@ -63,17 +52,15 @@ const { state, ...actions } = workspace
       <header class="topbar">
         <span
           >工作空间 <span class="slash">/</span>
-          <b id="breadcrumb">{{ state.view === 'accounts' ? 'ADN 账户' : '结算文件' }}</b></span
+          <b id="breadcrumb">结算文件</b></span
         ><span id="scope-label" class="scope">{{
           state.user.admin ? '管理员 · 全部上传记录' : '个人空间 · 仅自己的记录'
         }}</span>
       </header>
       <ReportsView />
-      <AccountsView />
     </main>
   </div>
   <UploadDialog />
-  <AccountDialog />
   <DetailDialog />
   <div id="toast" class="toast" role="status" v-if="state.toast">{{ state.toast }}</div>
 </template>

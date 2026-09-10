@@ -1,35 +1,39 @@
 package report
 
 import (
-	"os"
+	"bytes"
+	"encoding/json"
 	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/chemanyu/adn-report-ai/internal/importer"
 	"github.com/chemanyu/adn-report-ai/internal/types"
 )
 
 type Download struct {
-	File    *os.File
-	Name    string
-	ModTime time.Time
+	File *bytes.Reader
+	Name string
 }
 
-// OpenDownload checks ownership before opening the CSV. The caller closes File.
+// Download the current effective rows, not the immutable import archive.
 func (l *ReportLogic) OpenDownload(id string, u types.User) (*Download, error) {
-	upload, err := l.findUpload(id, u)
+	upload, rows, err := l.snapshot(id, u, 0)
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.Open(filepath.Join(l.svcCtx.Config.DataDir, "csv", filepath.Base(upload.CSVPath)))
+	values, err := detailRows(upload, rows)
 	if err != nil {
 		return nil, err
 	}
-	info, err := file.Stat()
+	var columns []string
+	if err = json.Unmarshal(upload.Columns, &columns); err != nil {
+		return nil, err
+	}
+	result := importer.Result{Columns: columns, Rows: values}
+	data, err := result.CSV()
 	if err != nil {
-		file.Close()
 		return nil, err
 	}
 	name := strings.TrimSuffix(upload.Filename, filepath.Ext(upload.Filename)) + "-" + upload.Sheet + ".csv"
-	return &Download{File: file, Name: name, ModTime: info.ModTime()}, nil
+	return &Download{File: bytes.NewReader(data), Name: name}, nil
 }

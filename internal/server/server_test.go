@@ -69,11 +69,11 @@ func TestPostgreSQLWorkflowAndPermissions(t *testing.T) {
 	again.Close()
 	var tables, columns int
 	e = db.QueryRow(`SELECT COUNT(*),COUNT(*) FILTER (WHERE obj_description(oid,'pg_class') IS NOT NULL) FROM pg_class WHERE relnamespace=$1::regnamespace AND relkind='r'`, c.PostgreSQL.Schema).Scan(&tables, &columns)
-	if e != nil || tables != 6 || columns != 6 {
+	if e != nil || tables != 5 || columns != 5 {
 		t.Fatalf("table comments: %d/%d %v", columns, tables, e)
 	}
 	e = db.QueryRow(`SELECT COUNT(*) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid WHERE c.relnamespace=$1::regnamespace AND c.relkind='r' AND a.attnum>0 AND NOT a.attisdropped AND col_description(c.oid,a.attnum) IS NOT NULL`, c.PostgreSQL.Schema).Scan(&columns)
-	if e != nil || columns != 39 {
+	if e != nil || columns != 35 {
 		t.Fatalf("column comments: %d %v", columns, e)
 	}
 	os.MkdirAll(filepath.Join(c.DataDir, "csv"), 0700)
@@ -114,13 +114,12 @@ func TestPostgreSQLWorkflowAndPermissions(t *testing.T) {
 		}
 	}
 	check(call("GET", "/api/uploads", nil, "", nil, false), 401)
-	check(call("POST", "/api/accounts", strings.NewReader(`{"name":"主账户","code":"001"}`), "application/json", alice, false), 403)
-	w := call("POST", "/api/accounts", strings.NewReader(`{"name":"主账户","code":"001"}`), "application/json", alice, true)
-	check(w, 201)
-	check(call("POST", "/api/accounts", strings.NewReader(`{"name":"重复","code":"001"}`), "application/json", alice, true), 409)
+	check(call("GET", "/api/accounts", nil, "", alice, false), 404)
+	check(call("POST", "/api/accounts", strings.NewReader(`{}`), "application/json", alice, true), 404)
+	var w *httptest.ResponseRecorder
 	f := excelize.NewFile()
-	headers := []any{"日期", "结算数", "结算单价", "结算金额", "渠道", "ID"}
-	row := []any{"2026-08-23", "10", "0.1", "1.0", "微博,汽水", "000123"}
+	headers := []any{"代理商", "广告主", "任务名称", "日期", "结算数", "结算单价", "结算金额", "渠道", "ID"}
+	row := []any{"代理甲", "广告甲", "任务甲", "2026-08-23", "10", "0.1", "1.0", "微博,汽水", "000123"}
 	f.SetSheetRow("Sheet1", "A1", &headers)
 	f.SetSheetRow("Sheet1", "A2", &row)
 	buf, _ := f.WriteToBuffer()
@@ -132,13 +131,11 @@ func TestPostgreSQLWorkflowAndPermissions(t *testing.T) {
 		part.Write(data)
 		mw.WriteField("sheet", "Sheet1")
 		mw.WriteField("operator", "运营乙")
-		mw.WriteField("account_id", "1")
 		mw.Close()
 		return call("POST", path, &b, mw.FormDataContentType(), cookie, true)
 	}
 	check(upload("/api/preview", buf.Bytes(), alice), 200)
 	check(upload("/api/uploads", buf.Bytes(), alice), 201)
-	check(upload("/api/uploads", buf.Bytes(), alice), 409)
 	for _, path := range []string{"/api/uploads/1", "/api/uploads/1/csv"} {
 		check(call("GET", path, nil, "", bob, false), 404)
 		check(call("GET", path, nil, "", alice, false), 200)
@@ -171,7 +168,7 @@ func TestPostgreSQLWorkflowAndPermissions(t *testing.T) {
 		cookie *http.Cookie
 		total  int
 	}{{alice, 1}, {bob, 0}, {boss, 1}} {
-		for _, suffix := range []string{"?q=" + url.QueryEscape("测试"), "?account_id=1", "?q=" + url.QueryEscape("运营乙") + "&account_id=1"} {
+		for _, suffix := range []string{"?q=" + url.QueryEscape("测试"), "?q=" + url.QueryEscape("广告甲"), "?q=" + url.QueryEscape("运营乙")} {
 			w = call("GET", "/api/uploads"+suffix, nil, "", item.cookie, false)
 			check(w, 200)
 			var list struct {
@@ -185,16 +182,15 @@ func TestPostgreSQLWorkflowAndPermissions(t *testing.T) {
 			}
 		}
 	}
-	w = call("GET", "/api/uploads?page=2&account_id=1", nil, "", alice, false)
+	w = call("GET", "/api/uploads?page=2", nil, "", alice, false)
 	check(w, 200)
 	if !strings.Contains(w.Body.String(), `"items":[]`) {
 		t.Fatal(w.Body.String())
 	}
-	check(call("GET", "/api/uploads?account_id=bad", nil, "", alice, false), 400)
-	var fixed, extra, source string
-	e = db.QueryRow("SELECT amount,extra_fields->>'ID',source_values->>5 FROM settlement_rows WHERE upload_id=1").Scan(&fixed, &extra, &source)
-	if e != nil || fixed != "1.000000" || extra != "000123" || source != "000123" {
-		t.Fatalf("stored values %s %s %s: %v", fixed, extra, source, e)
+	var fixed, extra, agency string
+	e = db.QueryRow("SELECT amount,extra_fields->>'ID',agency FROM settlement_rows WHERE upload_id=1").Scan(&fixed, &extra, &agency)
+	if e != nil || fixed != "1.000000" || extra != "000123" || agency != "代理甲" {
+		t.Fatalf("stored values %s %s %s: %v", fixed, extra, agency, e)
 	}
 	// Failed imports leave neither records nor additional CSV files.
 	f = excelize.NewFile()
@@ -207,6 +203,9 @@ func TestPostgreSQLWorkflowAndPermissions(t *testing.T) {
 	if len(files) != 1 {
 		t.Fatalf("orphan files: %v", files)
 	}
+	t.Run("business key updates", func(t *testing.T) {
+		checkBusinessKeyUpdates(t, c, db, handler, alice, bob, boss)
+	})
 	check(call("POST", "/api/auth/local", strings.NewReader(`{"username":"admin","password":"wrong"}`), "application/json", nil, true), 401)
 	w = call("POST", "/api/auth/local", strings.NewReader(`{"username":"admin","password":"test-password-12345"}`), "application/json", nil, true)
 	check(w, 200)

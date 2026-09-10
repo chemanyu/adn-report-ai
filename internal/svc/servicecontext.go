@@ -15,7 +15,6 @@ import (
 type ServiceContext struct {
 	Config       config.Config
 	AuthModel    model.AuthModel
-	AccountModel model.AccountModel
 	UploadModel  model.UploadModel
 	DingTalk     *dingtalk.Client
 	LoginLimiter *LoginLimiter
@@ -24,7 +23,7 @@ type ServiceContext struct {
 
 func NewServiceContext(c config.Config, db *sql.DB) *ServiceContext {
 	return &ServiceContext{
-		Config: c, AuthModel: model.NewAuthModel(db), AccountModel: model.NewAccountModel(db), UploadModel: model.NewUploadModel(db),
+		Config: c, AuthModel: model.NewAuthModel(db), UploadModel: model.NewUploadModel(db),
 		DingTalk: &dingtalk.Client{HTTPClient: &http.Client{Timeout: 15 * time.Second}}, LoginLimiter: &LoginLimiter{}, ImportSlots: make(chan struct{}, 2),
 	}
 }
