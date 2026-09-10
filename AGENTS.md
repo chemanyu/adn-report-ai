@@ -7,7 +7,7 @@
 - 使用中文沟通。用户希望减少重复探索和 token 消耗。
 - 不要为了了解项目重新启动服务、连接数据库、全量扫描目录或重跑全部测试。优先使用下面的代码索引，只检查与本次修改相关的文件。
 - 已有验证结果属于历史快照。涉及相应行为的代码发生变化时，执行必要的针对性验证，不要将历史通过当成本次通过。
-- 2026-09-10 独立 18081 测试实例已清理。172.16.3.34 的 ADN（0.0.0.0:18080）与 OpenResty（80）现已运行；已按用户要求开放 IP:18080 访问，重启 ADN 并确认跨机器页面 200、未登录 API 401，未操作 nginx。后续按需操作并记录状态，不复用历史 PID。
+- 2026-09-10 独立 18081 测试实例已清理。172.16.3.34 的 ADN（0.0.0.0:18080）与 OpenResty（80）运行中；ADN BaseURL 为 `http://172.16.3.34:18080`。用户确认公网域名不指向此机后，已撤销本次 nginx `/adn/` 分流并平滑重载，LumenX 代理保留 17177。后续按需操作，不复用历史 PID。
 - 每次完成架构、数据库、业务规则或运行状态变更后，更新本文件对应内容及日期；保持精简，不追加聊天流水账。不保存密码、令牌或完整含密码的连接串。
 
 ## 项目概况
@@ -26,7 +26,7 @@
 - **当前是 PostgreSQL，已完成 MySQL 切换。** 地址 `172.16.3.25:5432`，数据库 `inhouse_ads`，业务 schema `adn_report`。不要改回旧 MySQL，也不要把业务表放进 `public`。
 - 私有配置：`etc/config.yaml`（已忽略版本控制、权限 0600）；模板：`etc/config.example.yaml`。连接配置为 `PostgreSQL.DSN`、`PostgreSQL.Schema`，环境变量 `DATABASE_URL` 可覆盖 DSN。
 - 本地管理员用户名 `admin`，密码位置为私有配置中的 `Auth.AdminPassword`。读配置时避免将密钥输出到日志、文档或工具结果。
-- 2026-09-10 曾按用户要求原样同步本地配置至 34（备份、SHA-256 一致、0600）；后续域名排障仅将远端 BaseURL 改为 `https://lumen.o.atdplus.cn/adn-report`，保留其他配置，数据库连接检查和 ADN 重启通过。同日按用户要求将远端 Host 改为 `0.0.0.0`、BaseURL 改为 `http://172.16.3.34:18080`，配置及 PG 连接校验、重启与跨机器访问检查通过；备份为远端 `etc/config.yaml.bak-ip-20260910164945`（0600）。远端已不再与本地文件逐字相同；默认部署继续保留远端配置。
+- 2026-09-10 曾按用户要求原样同步本地配置至 34（备份、SHA-256 一致、0600）；后续域名排障仅将远端 BaseURL 改为 `https://lumen.o.atdplus.cn/adn-report`，保留其他配置，数据库连接检查和 ADN 重启通过。同日按用户要求将远端 Host 改为 `0.0.0.0`、BaseURL 改为 `http://172.16.3.34:18080`，配置及 PG 连接校验、重启与跨机器访问检查通过；备份为远端 `etc/config.yaml.bak-ip-20260910164945`（0600）。随后曾为 nginx 子路径部署切到域名 `/adn`；因用户仍使用 IP:18080 导致退出来源校验 403，现已恢复 `http://172.16.3.34:18080`（详见测试机部署）。远端已不再与本地文件逐字相同；默认部署继续保留远端配置。
 - 钉钉配置为 `Auth.ClientID/ClientSecret`，管理员名单为 `Auth.AdminUnionIDs`。截至最后交接，真实钉钉应用凭据和回调配置尚待用户完成；授权流程已有模拟钉钉响应的集成测试，不能称真实扫码已验证。
 - PostgreSQL 启动初始化由 `store.Open` 执行：独立 schema、事务内建表、advisory lock 防并发初始化、自动同步中文注释。`store.Connect` 仅连接不建表。
 - 6 张表、39 个字段都有中文注释。新增或修改字段必须同步其用途注释。旧脚本 `internal/store/migrations/mysql/` 仅作历史记录，不能在 PostgreSQL 执行。
@@ -63,18 +63,23 @@
 | 预览、上传、列表、明细、下载 HTTP/业务处理 | `internal/handler/report/`、`internal/logic/report/`（按功能拆文件） |
 | 业务 SQL 与事务 | `internal/model/{authmodel,accountmodel,uploadmodel}.go` |
 | Vue 布局、页面组件、交互和样式 | `web/src/App.vue`、`web/src/components/`、`web/src/composables/useWorkspace.js`、`web/src/style.css` |
-| 目标机部署、systemd、nginx | `deploy_test.sh`、`deploy/activate.sh`、`deploy/adn-report-ai.service`、`deploy/nginx-location.conf`、`deploy/nginx-edge-location.conf` |
+| 目标机部署、systemd、nginx | `deploy.sh`、`scripts/build-linux.sh`、`deploy_test.sh`、`deploy/activate.sh`、`deploy/adn-report-ai.service`、`deploy/nginx-location.conf`、`deploy/nginx-edge-location.conf` |
 | 前端请求、构建与开发代理 | `web/src/api.js`、`web/package.json`、`web/vite.config.js` |
 | SQL/API 集成与 go-zero 路由验证 | `internal/server/server_test.go`、`internal/server/routes_test.go` |
 | Excel、配置、错误脱敏验证 | `internal/importer/excel_test.go`、`internal/config/config_test.go`、`internal/store/store_test.go` |
+
+## 线上仓库部署
+
+- 2026-09-10 `deploy.sh` 已由其他项目适配为 ADN：在 Linux 仓库执行 git pull，使用 `dist-linux/adn-report` 产物，保留 `etc/config.yaml`，先 `-check` 再安装/重启 `adn-report-ai` systemd 服务，以仓库为工作目录运行 `bin/adn-report -f <仓库>/etc/config.yaml`，日志进入 journal。健康检查 `/api/auth/config` 默认 18080，可通过 PORT 指定；不操作 nginx。失败恢复旧二进制与 unit，备份在 `.cache/deploy-backups/`。
+- 开发机执行 `bash scripts/build-linux.sh`（兼容 Node 自动选择、Vue 构建、Linux 默认 amd64 交叉编译），将产物与源码一起提交推送；服务器无需 Go/Node。本次仅修改脚本和说明，bash 语法检查及模拟成功部署/健康失败回退/缺配置停止通过，未生成或提交二进制、未实际部署线上机器。
 
 ## 测试机部署
 
 - 2026-09-10 简化部署：脚本仅构建、上传、启动并检查远端应用 18080，不再操作 nginx；首次部署及 `--sync-config` 原样复制本地私有配置，默认保留远端配置。main 启动日志显示 Host/Port，不把 BaseURL 当作监听地址。本次未启动本地服务或操作远端运行状态。
 
 - 2026-09-10 已执行 `deploy_test.sh --stage`：目标 `root@172.16.3.34`，Linux amd64 二进制 `/data/adn-report-ai/adn-report`（与本地产物 SHA-256 一致），私有配置 `etc/config.yaml` 权限 0600，CSV `data/csv/`。服务 `adn-report-ai.service`，后端现监听 `0.0.0.0:18080`（同日按用户要求调整）；日志 `/data/log/go/adt-go/adn-report-ai/`。
-- 当前直接访问入口为 `http://172.16.3.34:18080/`，BaseURL 与其一致。原域名入口 `https://lumen.o.atdplus.cn/adn-report/` 的 nginx 配置保留，但当前登录来源与回跳以 IP 入口为准。34 的 `/usr/local/openresty/nginx/conf/sites-enable/lumenx.conf` 已引用 `conf/snippets/adn-report.location.conf`；本机以域名 Host 访问该路径返回 ADN，API 返回 JSON。配置已备份且 nginx -t 通过。
-- 公网入口尚未修复：域名解析 106.75.66.84，公网 `/adn-report/` 及其 API 均返回 LumenX HTML；唯一标记请求未出现于 34 的 nginx 日志或针对 80/17177/3000 端口的捕获，本机对照请求可见。用户无线上入口权限；已提供 `deploy/nginx-edge-location.conf` 给入口管理员，仅代理 ADN 前缀至 34，不能安装到 34 本机。
+- 2026-09-10 当前访问入口及远端 BaseURL 为 `http://172.16.3.34:18080`。用户已确认 `lumen.o.atdplus.cn` 不能到达此机，不再作为当前部署入口。为域名 `/adn` 临时修改 BaseURL 曾导致 IP 入口退出请求来源校验 403，恢复后该 Origin 的无会话退出请求正常返回 401；配置/PG 校验及重启通过。
+- 2026-09-10 按用户要求回退 34 的 `/usr/local/openresty/nginx/conf/sites-enable/lumenx.conf`：删除本次新增 `/adn` 和 `/adn/` location，LumenX 原业务代理为 17177，首页保留 LumenX 静态文件，无 ADN 路由；旧 `/adn-report/` snippet 未引用。nginx -t、平滑重载、首页及 ADN 认证配置 API 检查通过。回退前备份为 `lumenx.conf.bak-rollback-20260910171334`。仓库 nginx 子路径/公网入口示例为历史方案，非当前部署配置。
 - 2026-09-10 `deploy_test.sh` 已增加 Node 版本预检与自动选择（`scripts/node_env.sh`）：当前 Node 不满足 >=22.12 时依次检查 Homebrew/nvm 已安装版本，在 SSH 前完成检查，不修改用户全局 Node 设置。
 - 新增 `adn-report -f etc/config.yaml -check`：仅校验配置和 PG 连接，不建表、不启动 HTTP。子路径变更已通过 Vue 构建、Go 测试/vet，补充 `TestBaseURLPrefix` 与 `TestReverseProxyPrefix` 验证 URL、Origin、Cookie 和回跳。部署脚本语法检查及实际文件暂存流程通过。
 

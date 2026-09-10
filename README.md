@@ -67,6 +67,27 @@ Vite 将 `/api` 与 `/auth` 代理到后端，保留浏览器 Origin；无需放
 
 go-zero REST 的请求上限固定为 21 MiB（包含 multipart 开销），实际文件仍限制 20 MB，请求超时 180 秒；保留连接读写时限。禁用可能输出请求凭据的框架请求日志和默认 6060 调试服务；应用错误日志继续保留。数据库结构、登录 Cookie、业务规则与既有配置兼容。
 
+## 线上服务器部署（deploy.sh）
+
+`deploy.sh` 在 Linux 服务器的项目仓库中执行：拉取代码、校验预编译产物和数据库连接、安装 systemd 服务、重启并检查 `/api/auth/config`。服务器需要 git、curl、systemd 和 sudo/root 权限，无需 Go 或 Node；脚本不操作 nginx。
+
+先在开发机生成包含 Vue 页面的 Linux 产物（默认 amd64；ARM64 服务器可设 `GOARCH=arm64`）：
+
+```bash
+bash scripts/build-linux.sh
+# 将本次代码修改和 dist-linux/adn-report 一起提交、推送到部署分支
+```
+
+`dist-linux/adn-report` 用于此部署方式的版本分发，不含私有配置；应随对应源码一并提交。首次在服务器准备 `etc/config.yaml`（参考模板，配置 PostgreSQL、登录和实际 BaseURL），然后运行：
+
+```bash
+./deploy.sh
+# 如果配置使用其他端口，健康检查端口须保持一致
+PORT=18081 ./deploy.sh
+```
+
+服务名 `adn-report-ai`，运行文件 `bin/adn-report`，以仓库为工作目录，启动参数为 `-f <仓库>/etc/config.yaml`；相对 DataDir 也按仓库目录解析。监听应允许本机回环健康检查（默认 `127.0.0.1:18080`，需要 IP 直连时设 `0.0.0.0:18080`，BaseURL 使用实际访问地址）。脚本保留私有配置，以 root 运行服务，日志用 `sudo journalctl -u adn-report-ai` 查看。更新前备份至 `.cache/deploy-backups/`，启动或健康检查失败时恢复旧程序和服务配置。
+
 ## 部署到 172.16.3.34
 
 部署脚本参考 `../MCP/deploy_test.sh`，执行 `./deploy_test.sh`：安装锁定前端依赖、构建 Vue、交叉编译 Linux amd64、通过 SSH 上传，并用 systemd 管理服务。需要本机 Node >=22.12、Go 和到目标机的 root SSH 权限。脚本优先使用当前兼容 Node，版本过低时自动检查 Homebrew 和 nvm 已安装版本，只调整脚本进程的 PATH；找不到兼容版本时会在连接远端前报错。
