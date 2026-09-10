@@ -1,0 +1,17 @@
+Name: adn-report-ai
+Host: 127.0.0.1
+Port: 18080
+BaseURL: http://127.0.0.1:18080
+DataDir: data
+PostgreSQL:
+  # 可通过环境变量 DATABASE_URL 覆盖，不要将真实密码提交到版本库。
+  DSN: ""
+  Schema: adn_report
+Auth:
+  ClientID: ""
+  ClientSecret: ""
+  # 钉钉登录后个人信息中可以查看 unionId。按唯一标识授权，不按姓名。
+  AdminUnionIDs: []
+  # 可选的本地管理员入口；留空密码则禁用。生产环境建议仅使用钉钉。
+  AdminUsername: admin
+  AdminPassword: ""

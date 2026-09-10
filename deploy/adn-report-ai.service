@@ -1,0 +1,19 @@
+[Unit]
+Description=ADN Settlement Report Platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/data/adn-report-ai
+ExecStart=/data/adn-report-ai/adn-report -f /data/adn-report-ai/etc/config.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+StandardOutput=append:/data/log/go/adt-go/adn-report-ai/output.log
+StandardError=append:/data/log/go/adt-go/adn-report-ai/error.log
+
+[Install]
+WantedBy=multi-user.target

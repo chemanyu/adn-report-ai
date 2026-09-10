@@ -1,0 +1,11 @@
+/etc/config.yaml
+/data/
+/bin/
+/.cache/
+*.log
+/node_modules/
+/test-results/
+
+/web/node_modules/
+/web/dist/
+/etc/config.dev.yaml
