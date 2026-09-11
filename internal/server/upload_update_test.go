@@ -203,6 +203,78 @@ func checkBusinessKeyUpdates(t *testing.T, c config.Config, db *sql.DB, handler 
 	if len(after) != len(archives) {
 		t.Fatal("failed import left CSV")
 	}
+	// Same file/sheet reuses its ID even when source rows are reordered or overlap.
+	repeatFirst := saved(upload("复用.xlsx", "Sheet1", workbook("Sheet1", row(day, "复用一", "2"), row(day, "复用二", "3")), alice), 2, 0)
+	repeat := saved(upload("复用.xlsx", "Sheet1", workbook("Sheet1", row(day, "复用二", "8"), row(day, "复用三", "4")), alice), 1, 1)
+	if repeat.ID != repeatFirst.ID || !repeat.Reused {
+		t.Fatalf("record not reused: %+v %+v", repeatFirst, repeat)
+	}
+	assertBatch(repeat.ID, 3, "14.000000")
+	var repeated types.UploadDetailResponse
+	response := get(repeat.ID, false, alice)
+	if err := json.Unmarshal(response.Body.Bytes(), &repeated); err != nil {
+		t.Fatal(err)
+	}
+	var history []struct {
+		Inserted int `json:"inserted_rows"`
+		Updated  int `json:"updated_rows"`
+	}
+	if err := json.Unmarshal(repeated.Upload.History, &history); err != nil || len(history) != 2 || history[0].Inserted != 1 || history[0].Updated != 1 {
+		t.Fatalf("history: %s %v", repeated.Upload.History, err)
+	}
+	if !repeated.Upload.UpdatedAt.After(repeated.Upload.CreatedAt) {
+		t.Fatal("last upload time not updated")
+	}
+	// Retained dynamic columns remain in CSV even when absent from the latest file.
+	changed := excelize.NewFile()
+	headers := []any{"代理商", "广告主", "日期", "任务名称", "结算数", "结算单价", "结算金额", "新列"}
+	changed.SetSheetRow("Sheet1", "A1", &headers)
+	changedRow := row(day, "复用二", "8")
+	changed.SetSheetRow("Sheet1", "A2", &changedRow)
+	changedData, _ := changed.WriteToBuffer()
+	changed.Close()
+	saved(upload("复用.xlsx", "Sheet1", changedData.Bytes(), alice), 0, 1)
+	currentCSV := get(repeat.ID, true, alice)
+	if !bytes.Contains(currentCSV.Body.Bytes(), []byte("备注")) || !bytes.Contains(currentCSV.Body.Bytes(), []byte("新列")) {
+		t.Fatal("retained columns lost")
+	}
+	// A failed reused import rolls back metadata, events, rows and its new CSV.
+	beforeRepeat := get(repeat.ID, false, alice).Body.String()
+	db.Exec(`ALTER TABLE settlement_rows ADD CONSTRAINT test_reuse_failure CHECK(amount<>999)`)
+	failedRepeat := upload("复用.xlsx", "Sheet1", workbook("Sheet1", row(day, "复用二", "12"), row(day, "失败任务", "999")), alice)
+	db.Exec(`ALTER TABLE settlement_rows DROP CONSTRAINT test_reuse_failure`)
+	if failedRepeat.Code != 500 || get(repeat.ID, false, alice).Body.String() != beforeRepeat {
+		t.Fatal("failed reused import changed record/history")
+	}
+	for _, show := range []bool{false, true} {
+		request := httptest.NewRequest("GET", fmt.Sprintf("/api/uploads?q=%s&show_empty=%t", url.QueryEscape("改名.xlsx"), show), nil)
+		request.AddCookie(alice)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		var list types.UploadListResponse
+		if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil {
+			t.Fatal(err)
+		}
+		want := 0
+		if show {
+			want = 2
+		}
+		if list.Total != want {
+			t.Fatalf("empty filter: %t %+v", show, list)
+		}
+	}
+	// Simulate old duplicate batches. Migration consolidates rows and preserves history.
+	var duplicateID int64
+	if _, err := db.Exec(`DROP INDEX uq_upload_file`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`INSERT INTO uploads(user_id,uploader_name,operator_name,original_name,sheet_name,sha256,csv_path,columns_json,row_count,total_amount,date_from,date_to)
+ SELECT user_id,uploader_name,operator_name,original_name,sheet_name,sha256,csv_path,columns_json,0,0,NULL,NULL FROM uploads WHERE id=$1 RETURNING id`, repeat.ID).Scan(&duplicateID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE settlement_rows SET upload_id=$1 WHERE id=(SELECT MIN(id) FROM settlement_rows WHERE upload_id=$2)`, duplicateID, repeat.ID); err != nil {
+		t.Fatal(err)
+	}
 	// Migrate legacy extra fields, remove source_values, retain incomplete legacy records.
 	var legacyID, unknownID int64
 	if _, err := db.Exec(`ALTER TABLE settlement_rows ADD COLUMN source_values JSONB`); err != nil {
@@ -225,6 +297,11 @@ func checkBusinessKeyUpdates(t *testing.T, c config.Config, db *sql.DB, handler 
 			t.Fatal(err)
 		}
 		migrated.Close()
+	}
+	assertBatch(duplicateID, 3, "14.000000")
+	var mergedCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM upload_history WHERE upload_id=$1`, duplicateID).Scan(&mergedCount); err != nil || mergedCount != 4 {
+		t.Fatalf("merged history %d %v", mergedCount, err)
 	}
 	var n int
 	if err = db.QueryRow(`SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='adn_accounts'`).Scan(&n); err != nil || n != 0 {
@@ -279,8 +356,14 @@ func checkBusinessKeyUpdates(t *testing.T, c config.Config, db *sql.DB, handler 
 	if err = db.QueryRow(`SELECT COUNT(*) FROM settlement_rows WHERE task_name='并发任务'`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("concurrent duplicate: %d %v", n, err)
 	}
+	if err = db.QueryRow(`SELECT COUNT(*) FROM uploads WHERE original_name='并发.xlsx'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("concurrent file records: %d %v", n, err)
+	}
+	if err = db.QueryRow(`SELECT COUNT(*) FROM upload_history h JOIN uploads u ON u.id=h.upload_id WHERE u.original_name='并发.xlsx'`).Scan(&n); err != nil || n != 8 {
+		t.Fatalf("concurrent history: %d %v", n, err)
+	}
 	// All immutable archives remain referenced, while dynamic downloads use current rows.
-	rows, err := db.Query(`SELECT csv_path FROM uploads`)
+	rows, err := db.Query(`SELECT source_json->>'csv_path' FROM upload_history`)
 	if err != nil {
 		t.Fatal(err)
 	}

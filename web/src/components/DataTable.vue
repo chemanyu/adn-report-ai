@@ -33,7 +33,7 @@ function displayValue(row, column) {
       </tr>
     </thead>
     <tbody>
-      <tr v-for="(row, index) in rows" :key="row.source_row ?? index">
+      <tr v-for="(row, index) in rows" :key="index">
         <td v-for="column in displayColumns" :key="column.index" :title="displayValue(row, column)">
           {{ displayValue(row, column) }}
         </td>

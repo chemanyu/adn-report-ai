@@ -61,6 +61,14 @@ const { state, ...actions } = inject('workspace')
             aria-label="搜索记录"
             v-model="state.filters.q"
           />
+          <label class="empty-toggle"
+            ><input
+              type="checkbox"
+              v-model="state.filters.show_empty"
+              @change="actions.filterRecords"
+            />
+            显示空记录</label
+          >
           <button class="button" type="submit">筛选</button>
         </form>
       </div>
@@ -74,7 +82,7 @@ const { state, ...actions } = inject('workspace')
               <th>运营 / 上传人员</th>
               <th>数据行数</th>
               <th>结算金额（元）</th>
-              <th>上传时间</th>
+              <th>最近上传时间</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -102,7 +110,7 @@ const { state, ...actions } = inject('workspace')
               </td>
               <td>{{ actions.number(record.row_count) }}</td>
               <td class="money">{{ actions.money(record.total_amount) }}</td>
-              <td>{{ actions.datetime(record.created_at) }}</td>
+              <td>{{ actions.datetime(record.updated_at) }}</td>
               <td>
                 <div class="row-actions">
                   <button
@@ -127,11 +135,7 @@ const { state, ...actions } = inject('workspace')
       >
         <div class="empty-icon">▤</div>
         <h3>
-          {{
-            state.filters.q
-              ? '没有匹配的上传记录'
-              : '从第一份结算文件开始'
-          }}
+          {{ state.filters.q ? '没有匹配的上传记录' : '从第一份结算文件开始' }}
         </h3>
         <p>
           {{

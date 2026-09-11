@@ -25,27 +25,66 @@ const { state, ...actions } = inject('workspace')
       </button>
     </div>
     <div class="dialog-content">
-      <p class="muted small">这里展示当前有效明细；已由后续上传更新的行归入最新批次。</p>
+      <p class="muted small">
+        这里展示当前有效明细；同名文件、同一工作表重复上传会更新此记录，未匹配的旧明细保留。
+      </p>
       <div id="detail-meta" class="detail-meta">
         <template v-if="state.detail"
-          ><div>
-            <span>广告主</span>{{ state.detail.upload.advertisers?.join('、') || '—' }}
-          </div>
+          ><div><span>广告主</span>{{ state.detail.upload.advertisers?.join('、') || '—' }}</div>
           <div><span>运营人员</span>{{ state.detail.upload.operator }}</div>
           <div><span>上传人员</span>{{ state.detail.upload.uploader }}</div>
           <div><span>工作表</span>{{ state.detail.upload.sheet }}</div>
           <div>
-            <span>结算日期</span>{{ state.detail.upload.date_from ? `${state.detail.upload.date_from} 至 ${state.detail.upload.date_to}` : '无当前有效明细' }}
+            <span>结算日期</span
+            >{{
+              state.detail.upload.date_from
+                ? `${state.detail.upload.date_from} 至 ${state.detail.upload.date_to}`
+                : '无当前有效明细'
+            }}
           </div>
           <div><span>结算金额</span>{{ actions.money(state.detail.upload.total_amount) }} 元</div>
           <div>
-            <span>上传时间</span>{{ actions.datetime(state.detail.upload.created_at) }}
+            <span>最近上传时间</span>{{ actions.datetime(state.detail.upload.updated_at) }}
           </div></template
         >
       </div>
       <div id="detail-error" class="notice error" v-if="state.detailError">
         {{ state.detailError }}
       </div>
+      <details v-if="state.detail" class="upload-history">
+        <summary>上传历史（{{ state.detail.upload.history?.length || 0 }} 次）</summary>
+        <p class="muted small">历史仅记录上传操作，明细和下载反映当前有效数据。</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>上传时间</th>
+                <th>上传人员</th>
+                <th>运营人员</th>
+                <th>新增行数</th>
+                <th>更新行数</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="event in state.detail.upload.history" :key="event.id">
+                <td>{{ actions.datetime(event.uploaded_at) }}</td>
+                <td>{{ event.uploader }}</td>
+                <td>{{ event.operator }}</td>
+                <td>
+                  {{
+                    event.inserted_rows == null ? '历史未记录' : actions.number(event.inserted_rows)
+                  }}
+                </td>
+                <td>
+                  {{
+                    event.updated_rows == null ? '历史未记录' : actions.number(event.updated_rows)
+                  }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
       <div class="preview-heading">
         <h3>结算数据</h3>
         <a

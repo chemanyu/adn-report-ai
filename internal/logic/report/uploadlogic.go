@@ -64,5 +64,5 @@ func (l *ReportLogic) Upload(in types.FileRequest, u types.User) (*types.UploadR
 		return nil, err
 	}
 	committed = true
-	return &types.UploadResponse{ID: saved.ID, Inserted: saved.Inserted, Updated: saved.Updated, RowCount: len(p.Rows), Total: p.Total}, nil
+	return &types.UploadResponse{ID: saved.ID, Reused: saved.Reused, Inserted: saved.Inserted, Updated: saved.Updated, RowCount: len(p.Rows), Total: p.Total}, nil
 }

@@ -157,7 +157,8 @@ PostgreSQL:
 - 公式使用 Excel 文件内已缓存的值，不在服务器执行或重新计算公式；请在 Excel 中完成计算后保存。
 - CSV 使用 UTF-8 BOM，标准列日期统一为 `YYYY-MM-DD`，数字统一 6 位小数；其他列保留读取到的底层单元格值，逗号与换行按 CSV 规则转义。原始公式表达式、样式、合并单元格和格式化显示不属于 CSV 数据。
 - 仅在同一登录用户的数据内，按「代理商 + 广告主 + 日期 + 任务名称」匹配：存在则更新整行，不存在则新增。文件名、工作表和文件哈希不参与匹配。本次文件未包含的旧业务记录保留，其他登录用户的数据互不影响；不同广告主属于不同业务键（管理员上传也仅更新自己的范围）。
-- 每次上传新增一条批次记录，更新的明细保留行 ID 并转入本次批次；旧批次保留未被更新的明细，行数、金额及日期范围同步重算。旧批次可能变为 0 行，历史上传记录仍保留。列表统计不重复累计已更新行，明细与页面下载的 CSV 为当前有效数据。
+- 同一登录用户、同名文件、同一工作表重复上传复用原记录，名称区分大小写；文件名或工作表不同则新建记录。明细仍按业务键更新，未匹配的旧行保留，统计同步重算。列表按最近上传时间排序，默认隐藏 0 行记录，可勾选「显示空记录」。详情折叠展示每次上传时间、人员及新增/更新行数，旧历史无法还原的数量显示「历史未记录」。每次 CSV 归档均保留，明细和页面下载反映当前有效数据。
+- 升级自动合并旧的同用户同名同工作表记录，保留最新记录 ID，所有剩余明细及上传历史转入该记录，旧重复记录 ID 不再可访问。表头以最新上传为先，补充旧额外列；源行号可重复，不再作为唯一标识。升级时须统一停止旧实例，完成数据库备份后切换新版本。
 - 不额外保留原始 XLSX；文件名、哈希、工作表、列顺序及当次 CSV 归档用于追溯。数据库保存七个固定字段及 `extra_fields` 额外列，不再保存 `source_values`。成功上传的归档 CSV 保留，页面下载从数据库一致性快照生成，不返回旧归档内容。
 
 ## 登录和权限
@@ -196,7 +197,7 @@ Auth:
 
 建表定义：[internal/store/schema.sql](internal/store/schema.sql)。
 
-5 张表和 35 个字段均包含中文注释，通过 PostgreSQL 的 `COMMENT ON TABLE/COLUMN` 设置。每次启动自动同步注释。在数据库工具中打开 `inhouse_ads → Schemas → adn_report → Tables` 即可查看。旧 MySQL 的注释脚本仅作为历史文件保留在 `internal/store/migrations/mysql/`，不要在 PostgreSQL 执行。
+6 张表和 44 个字段均包含中文注释，通过 PostgreSQL 的 `COMMENT ON TABLE/COLUMN` 设置。每次启动自动同步注释。在数据库工具中打开 `inhouse_ads → Schemas → adn_report → Tables` 即可查看。旧 MySQL 的注释脚本仅作为历史文件保留在 `internal/store/migrations/mysql/`，不要在 PostgreSQL 执行。
 
 | 表 | 用途 |
 | --- | --- |
@@ -204,9 +205,10 @@ Auth:
 | `sessions` | 登录会话哈希、用户、过期时间 |
 | `oauth_states` | 一次性授权状态与过期时间 |
 | `uploads` | 上传用户和当时姓名、运营人员、文件和工作表、CSV 路径、列顺序、行数、金额合计、日期范围 |
+| `upload_history` | 每次上传的时间、人员、新增/更新数量及不可变归档信息 |
 | `settlement_rows` | 七个固定字段、`extra_fields` 额外列、最新上传批次及 Excel 行号 |
 
-关系为 `users → uploads`、`uploads → settlement_rows`。字段差异通过 JSONB 表达，不按渠道新建表，也不动态修改表结构。
+关系为 `users → uploads`、`uploads → settlement_rows`、`uploads → upload_history`。字段差异通过 JSONB 表达，不按渠道新建表，也不动态修改表结构。
 
 标准数字为 `DECIMAL(24,6)`，批次合计为 `DECIMAL(30,6)`。按上传人、创建时间、结算日期建立索引。登录、会话与上传时间使用 `TIMESTAMPTZ`，连接会话时区统一为 UTC，页面按浏览器时区显示；结算日期为 DATE，不进行时区偏移。
 
@@ -239,8 +241,8 @@ make integration  # 使用本地配置连接 PostgreSQL，创建随机测试 sch
 | `GET /api/me` | 当前用户 |
 | `POST /api/preview` | multipart：file、sheet，校验与前 10 行预览 |
 | `POST /api/uploads` | multipart：file、sheet、operator，保存结算 |
-| `GET /api/uploads?page=1&q=` | 批次列表、筛选与统计，每页 20 条；返回当前批次广告主列表和 advertiser_count |
-| `GET /api/uploads/{id}?page=1` | 明细，每页 100 行 |
+| `GET /api/uploads?page=1&q=&show_empty=false` | 文件列表、筛选与统计，每页 20 条；默认隐藏空记录，按最近上传时间排序 |
+| `GET /api/uploads/{id}?page=1` | 当前明细及上传历史，明细每页 100 行 |
 | `GET /api/uploads/{id}/csv` | 下载标准化 CSV |
 | `GET /api/template` | 下载标准 Excel 模板 |
 

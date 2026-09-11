@@ -21,6 +21,8 @@ type Upload struct {
 	DateFrom    string          `json:"date_from"`
 	DateTo      string          `json:"date_to"`
 	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	History     json.RawMessage `json:"history,omitempty"`
 	CSVPath     string          `json:"-"`
 }
 
@@ -32,8 +34,9 @@ type FileRequest struct {
 	Operator string
 }
 type ListUploadsRequest struct {
-	Page  int
-	Query string
+	ShowEmpty bool
+	Page      int
+	Query     string
 }
 type UploadDetailRequest struct {
 	ID   string
@@ -45,6 +48,7 @@ type PreviewResponse struct {
 	Valid    bool             `json:"valid"`
 }
 type UploadResponse struct {
+	Reused   bool   `json:"reused"`
 	Inserted int    `json:"inserted_rows"`
 	Updated  int    `json:"updated_rows"`
 	ID       int64  `json:"id"`

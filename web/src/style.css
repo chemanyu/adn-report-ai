@@ -990,3 +990,19 @@ label select {
   margin: 0;
   min-width: 0;
 }
+
+.empty-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.empty-toggle input {
+  width: auto;
+}
+.upload-history {
+  margin: 16px 0;
+}
+.upload-history summary {
+  cursor: pointer;
+}

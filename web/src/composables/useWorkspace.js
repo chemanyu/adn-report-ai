@@ -11,7 +11,7 @@ export function useWorkspace() {
     login: { username: 'admin', password: '' },
     loginError: '',
     loggingIn: false,
-    filters: { q: '' },
+    filters: { q: '', show_empty: false },
     page: 1,
     records: { items: [], total: 0, row_count: 0, total_amount: '0', advertiser_count: 0 },
     listError: '',
@@ -145,7 +145,7 @@ export function useWorkspace() {
       sheets: [],
       sheet: '',
       operator: state.user.name,
-        uploadError: '',
+      uploadError: '',
       previewLoading: false,
       dragging: false,
     })
@@ -206,9 +206,11 @@ export function useWorkspace() {
       const result = await api('/api/uploads', { method: 'POST', body: formData() })
       dialogs.upload.close()
       state.page = 1
-      state.filters = { q: '' }
+      state.filters = { q: '', show_empty: false }
       await loadRecords()
-      toast(`保存成功，新增 ${number(result.inserted_rows)} 行，更新 ${number(result.updated_rows)} 行`)
+      toast(
+        `${result.reused ? '已更新原记录' : '保存成功'}，新增 ${number(result.inserted_rows)} 行，更新 ${number(result.updated_rows)} 行`,
+      )
     } catch (e) {
       state.uploadError = e.message
     } finally {

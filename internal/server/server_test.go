@@ -69,11 +69,11 @@ func TestPostgreSQLWorkflowAndPermissions(t *testing.T) {
 	again.Close()
 	var tables, columns int
 	e = db.QueryRow(`SELECT COUNT(*),COUNT(*) FILTER (WHERE obj_description(oid,'pg_class') IS NOT NULL) FROM pg_class WHERE relnamespace=$1::regnamespace AND relkind='r'`, c.PostgreSQL.Schema).Scan(&tables, &columns)
-	if e != nil || tables != 5 || columns != 5 {
+	if e != nil || tables != 6 || columns != 6 {
 		t.Fatalf("table comments: %d/%d %v", columns, tables, e)
 	}
 	e = db.QueryRow(`SELECT COUNT(*) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid WHERE c.relnamespace=$1::regnamespace AND c.relkind='r' AND a.attnum>0 AND NOT a.attisdropped AND col_description(c.oid,a.attnum) IS NOT NULL`, c.PostgreSQL.Schema).Scan(&columns)
-	if e != nil || columns != 35 {
+	if e != nil || columns != 44 {
 		t.Fatalf("column comments: %d %v", columns, e)
 	}
 	os.MkdirAll(filepath.Join(c.DataDir, "csv"), 0700)

@@ -48,7 +48,7 @@ func ListHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		page, _ := strconv.Atoi(q.Get("page"))
-		in := types.ListUploadsRequest{Page: page, Query: q.Get("q")}
+		in := types.ListUploadsRequest{Page: page, Query: q.Get("q"), ShowEmpty: q.Get("show_empty") == "true"}
 		result, err := reportlogic.NewReportLogic(r.Context(), svcCtx).List(in, middleware.CurrentUser(r.Context()))
 		if err != nil {
 			response.Error(w, err)

@@ -8,7 +8,7 @@ import (
 )
 
 func (l *ReportLogic) List(in types.ListUploadsRequest, u types.User) (*types.UploadListResponse, error) {
-	filter := model.UploadFilter{OwnerID: ownerScope(u), Query: strings.TrimSpace(in.Query), Page: pageNumber(in.Page)}
+	filter := model.UploadFilter{OwnerID: ownerScope(u), Query: strings.TrimSpace(in.Query), ShowEmpty: in.ShowEmpty, Page: pageNumber(in.Page)}
 	list, err := l.svcCtx.UploadModel.List(l.ctx, filter)
 	if err != nil {
 		return nil, err

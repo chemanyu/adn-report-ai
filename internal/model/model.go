@@ -28,6 +28,8 @@ type Upload struct {
 	DateFrom    string
 	DateTo      string
 	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	History     json.RawMessage
 	CSVPath     string
 }
 type SettlementRow struct {
@@ -48,6 +50,7 @@ type NewUpload struct {
 }
 
 type UploadSaveResult struct {
+	Reused   bool
 	ID       int64
 	Inserted int
 	Updated  int
@@ -55,9 +58,10 @@ type UploadSaveResult struct {
 
 // OwnerID is nil only when the caller has explicitly granted administrator scope.
 type UploadFilter struct {
-	OwnerID *int64
-	Query   string
-	Page    int
+	ShowEmpty bool
+	OwnerID   *int64
+	Query     string
+	Page      int
 }
 type UploadList struct {
 	Items           []Upload
