@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/chemanyu/adn-report-ai/internal/config"
+	"github.com/chemanyu/adn-report-ai/internal/metadata"
+	"github.com/chemanyu/adn-report-ai/internal/model"
 	"github.com/chemanyu/adn-report-ai/internal/server"
 	"github.com/chemanyu/adn-report-ai/internal/store"
 	"github.com/chemanyu/adn-report-ai/internal/svc"
@@ -25,11 +27,18 @@ var assets embed.FS
 func main() {
 	path := flag.String("f", "etc/config.yaml", "YAML config file")
 	check := flag.Bool("check", false, "check configuration and PostgreSQL connectivity without starting the service")
+	syncIDs := flag.Bool("sync-ids", false, "migrate schema and backfill missing account IDs and project mappings, without starting HTTP")
 	flag.Parse()
 	var c config.Config
 	conf.MustLoad(*path, &c)
 	if e := c.Validate(); e != nil {
 		log.Fatal(e)
+	}
+	if *syncIDs && *check {
+		log.Fatal("-check 与 -sync-ids 不能同时使用")
+	}
+	if *syncIDs && c.Ding.OpenID == "" {
+		log.Fatal("请配置 Ding.OpenID")
 	}
 	if *check {
 		db, err := store.Connect(c)
@@ -48,6 +57,16 @@ func main() {
 		log.Fatal(e)
 	}
 	defer db.Close()
+	if *syncIDs {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		n, err := model.BackfillIDs(ctx, db, metadata.New(c.Metadata.Endpoint, c.Ding.OpenID))
+		if err != nil {
+			log.Fatal(store.RedactError(c, err))
+		}
+		log.Printf("账户 ID 回填完成：%d 条明细", n)
+		return
+	}
 	web, e := fs.Sub(assets, "web/dist")
 	if e != nil {
 		log.Fatal(e)

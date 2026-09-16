@@ -17,7 +17,8 @@ export function useWorkspace() {
     listError: '',
     listLoading: false,
     file: null,
-    sheet: '',
+    selectedSheets: [],
+    previews: [],
     sheets: [],
     operator: '',
     preview: null,
@@ -143,7 +144,8 @@ export function useWorkspace() {
       valid: false,
       preview: null,
       sheets: [],
-      sheet: '',
+      selectedSheets: [],
+      previews: [],
       operator: state.user.name,
       uploadError: '',
       previewLoading: false,
@@ -153,10 +155,10 @@ export function useWorkspace() {
     await nextTick()
     dialogs.upload.showModal()
   }
-  function formData() {
+  function formData(sheet) {
     const data = new FormData()
     data.append('file', state.file)
-    data.append('sheet', state.sheet)
+    data.append('sheet', sheet)
     data.append('operator', state.operator.trim())
     return data
   }
@@ -164,6 +166,7 @@ export function useWorkspace() {
     const version = ++previewVersion
     state.valid = false
     state.preview = null
+    state.previews = []
     state.uploadError = ''
     if (!state.file) {
       state.previewLoading = false
@@ -173,12 +176,19 @@ export function useWorkspace() {
     try {
       if (!/\.xlsx$/i.test(state.file.name) || state.file.size > 20 * 1024 * 1024)
         throw new Error('请选择 20 MB 以内的 .xlsx 文件。')
-      const data = await api('/api/preview', { method: 'POST', body: formData() })
-      if (version !== previewVersion) return
-      state.preview = data
-      state.valid = data.valid
-      state.sheets = data.result.sheets
-      state.sheet = data.result.sheet
+      const selected = [...state.selectedSheets]
+      if (!selected.length && state.sheets.length) throw new Error('请至少选择一个工作表。')
+      const previews = []
+      for (const sheet of selected.length ? selected : ['']) {
+        const data = await api('/api/preview', { method: 'POST', body: formData(sheet) })
+        if (version !== previewVersion) return
+        previews.push(data)
+      }
+      state.previews = previews
+      state.preview = previews[0]
+      state.valid = previews.every((item) => item.valid)
+      state.sheets = previews[0].result.sheets
+      state.selectedSheets = previews.map((item) => item.result.sheet)
     } catch (e) {
       if (version === previewVersion) state.uploadError = e.message
     } finally {
@@ -188,7 +198,7 @@ export function useWorkspace() {
   function chooseFile(file) {
     if (state.uploading) return
     state.file = file || null
-    state.sheet = ''
+    state.selectedSheets = []
     state.sheets = []
     preview()
   }
@@ -203,13 +213,29 @@ export function useWorkspace() {
     state.uploading = true
     state.uploadError = ''
     try {
-      const result = await api('/api/uploads', { method: 'POST', body: formData() })
+      let inserted = 0,
+        updated = 0
+      const selected = [...state.selectedSheets]
+      for (const sheet of selected) {
+        try {
+          const result = await api('/api/uploads', { method: 'POST', body: formData(sheet) })
+          inserted += result.inserted_rows
+          updated += result.updated_rows
+          state.selectedSheets = state.selectedSheets.filter((item) => item !== sheet)
+          state.previews = state.previews.filter((item) => item.result.sheet !== sheet)
+        } catch (error) {
+          await loadRecords()
+          throw new Error(
+            `工作表「${sheet}」上传失败：${error.message}。已完成 ${selected.length - state.selectedSheets.length} 个工作表；重试仅提交剩余工作表。`,
+          )
+        }
+      }
       dialogs.upload.close()
       state.page = 1
       state.filters = { q: '', show_empty: false }
       await loadRecords()
       toast(
-        `${result.reused ? '已更新原记录' : '保存成功'}，新增 ${number(result.inserted_rows)} 行，更新 ${number(result.updated_rows)} 行`,
+        `保存成功，共 ${selected.length} 个工作表，新增 ${number(inserted)} 行，更新 ${number(updated)} 行`,
       )
     } catch (e) {
       state.uploadError = e.message

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 type UploadModel interface {
@@ -13,7 +14,21 @@ type UploadModel interface {
 	SaveWithRows(context.Context, NewUpload) (UploadSaveResult, error)
 }
 
-type uploadModel struct{ db *sql.DB }
+type IDResolutionError struct{ Err error }
+
+func (e *IDResolutionError) Error() string { return e.Err.Error() }
+
+type IDResolver interface {
+	Resolve(context.Context, []SettlementRow) ([]Project, error)
+}
+type uploadModel struct {
+	db       *sql.DB
+	resolver IDResolver
+}
+
+func NewUploadModelWithResolver(db *sql.DB, resolver IDResolver) UploadModel {
+	return &uploadModel{db: db, resolver: resolver}
+}
 
 func NewUploadModel(db *sql.DB) UploadModel { return &uploadModel{db: db} }
 
@@ -85,7 +100,7 @@ func (m *uploadModel) Snapshot(ctx context.Context, id int64, ownerID *int64, pa
 	if err != nil {
 		return Upload{}, nil, err
 	}
-	query := `SELECT source_row,COALESCE(agency,''),COALESCE(advertiser,''),COALESCE(task_name,''),settlement_date::text,COALESCE(settlement_count::text,''),COALESCE(unit_price::text,''),COALESCE(amount::text,''),extra_fields FROM settlement_rows WHERE upload_id=$1 ORDER BY source_row,id`
+	query := `SELECT source_row,COALESCE(agency,''),COALESCE(advertiser,''),COALESCE(task_name,''),settlement_date::text,COALESCE(settlement_count::text,''),COALESCE(unit_price::text,''),COALESCE(amount::text,''),extra_fields,COALESCE(agency_id,0),COALESCE(advertiser_id,0),COALESCE((SELECT jsonb_agg(p.project_id::text ORDER BY p.project_id) FROM account_projects p WHERE p.advertiser_id=settlement_rows.advertiser_id AND p.project_name COLLATE "C"=settlement_rows.task_name COLLATE "C" AND p.project_id<>0),'["0"]'::jsonb) FROM settlement_rows WHERE upload_id=$1 ORDER BY source_row,id`
 	params := []any{id}
 	if page > 0 {
 		query += " LIMIT 100 OFFSET $2"
@@ -99,8 +114,11 @@ func (m *uploadModel) Snapshot(ctx context.Context, id int64, ownerID *int64, pa
 	list := []SettlementRow{}
 	for rows.Next() {
 		var row SettlementRow
-		var extra []byte
-		if err = rows.Scan(&row.SourceRow, &row.Agency, &row.Advertiser, &row.TaskName, &row.Date, &row.Count, &row.Price, &row.Amount, &extra); err != nil {
+		var extra, projects []byte
+		if err = rows.Scan(&row.SourceRow, &row.Agency, &row.Advertiser, &row.TaskName, &row.Date, &row.Count, &row.Price, &row.Amount, &extra, &row.AgencyID, &row.AdvertiserID, &projects); err != nil {
+			return Upload{}, nil, err
+		}
+		if err = json.Unmarshal(projects, &row.ProjectIDs); err != nil {
 			return Upload{}, nil, err
 		}
 		if err = json.Unmarshal(extra, &row.Extra); err != nil {
@@ -121,6 +139,14 @@ func (m *uploadModel) Snapshot(ctx context.Context, id int64, ownerID *int64, pa
 // SaveWithRows updates only matching business keys in the authenticated owner
 // scope. A user-level transaction lock prevents races and overlapping-import deadlocks.
 func (m *uploadModel) SaveWithRows(ctx context.Context, in NewUpload) (UploadSaveResult, error) {
+	var projects []Project
+	if m.resolver != nil {
+		var err error
+		projects, err = m.resolver.Resolve(ctx, in.Rows)
+		if err != nil {
+			return UploadSaveResult{}, &IDResolutionError{Err: err}
+		}
+	}
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
 		return UploadSaveResult{}, err
@@ -164,9 +190,12 @@ func (m *uploadModel) SaveWithRows(ctx context.Context, in NewUpload) (UploadSav
 	if err != nil {
 		return UploadSaveResult{}, err
 	}
+	if err := saveProjects(ctx, tx, projects); err != nil {
+		return UploadSaveResult{}, err
+	}
 	affected := map[int64]bool{result.ID: true}
 	for _, row := range in.Rows {
-		old, err := tx.QueryContext(ctx, `SELECT r.id,r.upload_id FROM settlement_rows r JOIN uploads u ON u.id=r.upload_id WHERE u.user_id=$1 AND r.agency COLLATE "C"=$2 AND r.advertiser COLLATE "C"=$3 AND r.settlement_date=$4 AND r.task_name COLLATE "C"=$5 ORDER BY r.id DESC FOR UPDATE OF r`, u.UserID, row.Agency, row.Advertiser, row.Date, row.TaskName)
+		old, err := tx.QueryContext(ctx, `SELECT r.id,r.upload_id FROM settlement_rows r JOIN uploads u ON u.id=r.upload_id WHERE u.user_id=$1 AND md5(r.agency)=md5($2) AND md5(r.advertiser)=md5($3) AND r.agency COLLATE "C"=$2 AND r.advertiser COLLATE "C"=$3 AND r.settlement_date=$4 AND r.task_name COLLATE "C"=$5 AND COALESCE(r.extra_fields->>'fix','') COLLATE "C"=$6 ORDER BY r.id DESC FOR UPDATE OF r`, u.UserID, row.Agency, row.Advertiser, row.Date, row.TaskName, row.Extra["fix"])
 		if err != nil {
 			return UploadSaveResult{}, err
 		}
@@ -189,9 +218,18 @@ func (m *uploadModel) SaveWithRows(ctx context.Context, in NewUpload) (UploadSav
 		if err != nil {
 			return UploadSaveResult{}, err
 		}
-		args := []any{result.ID, row.SourceRow, row.Agency, row.Advertiser, row.TaskName, row.Date, row.Count, row.Price, row.Amount, string(extra)}
+		var agencyID, advertiserID any = row.AgencyID, row.AdvertiserID
+		if m.resolver == nil {
+			if row.AgencyID == 0 {
+				agencyID = nil
+			}
+			if row.AdvertiserID == 0 {
+				advertiserID = nil
+			}
+		}
+		args := []any{result.ID, row.SourceRow, row.Agency, row.Advertiser, row.TaskName, row.Date, row.Count, row.Price, row.Amount, string(extra), agencyID, advertiserID}
 		if len(ids) == 0 {
-			_, err = tx.ExecContext(ctx, `INSERT INTO settlement_rows(upload_id,source_row,agency,advertiser,task_name,settlement_date,settlement_count,unit_price,amount,extra_fields) VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,'')::numeric,NULLIF($8,'')::numeric,NULLIF($9,'')::numeric,$10)`, args...)
+			_, err = tx.ExecContext(ctx, `INSERT INTO settlement_rows(upload_id,source_row,agency,advertiser,task_name,settlement_date,settlement_count,unit_price,amount,extra_fields,agency_id,advertiser_id) VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,'')::numeric,NULLIF($8,'')::numeric,NULLIF($9,'')::numeric,$10,COALESCE($11::bigint,0),COALESCE($12::bigint,0))`, args...)
 			result.Inserted++
 		} else {
 			// Consolidate historical duplicates only when this exact key is explicitly uploaded.
@@ -201,7 +239,7 @@ func (m *uploadModel) SaveWithRows(ctx context.Context, in NewUpload) (UploadSav
 				}
 			}
 			args = append(args, ids[0])
-			_, err = tx.ExecContext(ctx, `UPDATE settlement_rows SET upload_id=$1,source_row=$2,agency=$3,advertiser=$4,task_name=$5,settlement_date=$6,settlement_count=NULLIF($7,'')::numeric,unit_price=NULLIF($8,'')::numeric,amount=NULLIF($9,'')::numeric,extra_fields=$10 WHERE id=$11`, args...)
+			_, err = tx.ExecContext(ctx, `UPDATE settlement_rows SET upload_id=$1,source_row=$2,agency=$3,advertiser=$4,task_name=$5,settlement_date=$6,settlement_count=NULLIF($7,'')::numeric,unit_price=NULLIF($8,'')::numeric,amount=NULLIF($9,'')::numeric,extra_fields=$10,agency_id=COALESCE($11,agency_id,0),advertiser_id=COALESCE($12,advertiser_id,0) WHERE id=$13`, args...)
 			result.Updated++
 		}
 		if err != nil {
@@ -224,4 +262,27 @@ func (m *uploadModel) SaveWithRows(ctx context.Context, in NewUpload) (UploadSav
 		return UploadSaveResult{}, err
 	}
 	return result, nil
+}
+
+func saveProjects(ctx context.Context, tx *sql.Tx, projects []Project) error {
+	// Global project ordering keeps concurrent imports from acquiring locks in opposite order.
+	sort.Slice(projects, func(i, j int) bool {
+		if projects[i].AdvertiserID != projects[j].AdvertiserID {
+			return projects[i].AdvertiserID < projects[j].AdvertiserID
+		}
+		return projects[i].ID < projects[j].ID
+	})
+	for _, p := range projects {
+		// Serialize placeholder replacement for the same account across users.
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':project-account:' || $1::bigint::text,0))`, p.AdvertiserID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM account_projects WHERE advertiser_id=$1 AND project_name COLLATE "C"=$2`, p.AdvertiserID, p.Name); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO account_projects(project_id,project_name,advertiser_id) VALUES($1,$2,$3) ON CONFLICT (project_id) WHERE project_id<>0 DO UPDATE SET project_name=EXCLUDED.project_name,advertiser_id=EXCLUDED.advertiser_id,updated_at=CURRENT_TIMESTAMP`, p.ID, p.Name, p.AdvertiserID); err != nil {
+			return err
+		}
+	}
+	return nil
 }

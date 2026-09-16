@@ -32,16 +32,25 @@ type Upload struct {
 	History     json.RawMessage
 	CSVPath     string
 }
+type Project struct {
+	ID           int64
+	Name         string
+	AdvertiserID int64
+}
+
 type SettlementRow struct {
-	Agency     string
-	Advertiser string
-	TaskName   string
-	SourceRow  int
-	Date       string
-	Count      string
-	Price      string
-	Amount     string
-	Extra      map[string]string
+	ProjectIDs   []string
+	AgencyID     int64
+	AdvertiserID int64
+	Agency       string
+	Advertiser   string
+	TaskName     string
+	SourceRow    int
+	Date         string
+	Count        string
+	Price        string
+	Amount       string
+	Extra        map[string]string
 }
 type NewUpload struct {
 	Upload Upload

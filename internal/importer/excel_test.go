@@ -165,3 +165,111 @@ func TestBusinessKeyAndNullableNumbers(t *testing.T) {
 		t.Fatalf("empty key accepted: %+v %v", p, err)
 	}
 }
+
+func TestLongRequiredNames(t *testing.T) {
+	name := strings.Repeat("长名称", 1000)
+	data := workbook(t, [][]any{{"代理商", "广告主", "日期", "任务名称", "结算数", "结算单价", "结算金额"}, {name, name, "2026-09-16", name, "", "", ""}})
+	result, err := Read(data, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Errors) != 0 {
+		t.Fatal(result.Errors)
+	}
+	if len(result.Rows) != 1 || result.Rows[0].Agency != name || result.Rows[0].Advertiser != name || result.Rows[0].TaskName != name {
+		t.Fatal("long names were not preserved")
+	}
+}
+
+func TestSkipRowsWithoutAgencyAndAdvertiser(t *testing.T) {
+	headers := []any{"日期", "结算数", "结算单价", "结算金额", "代理商", "广告主", "任务名称"}
+	t.Run("skip irregular rows and preserve source line", func(t *testing.T) {
+		data := workbook(t, [][]any{headers,
+			{"说明"},
+			{"无效日期", "非数字", "", "999", " ", "\t", "", "无表头备注"},
+			{"2026-09-16", "2", "3", "6", "代理甲", "广告甲", "任务甲"},
+			{"合计", "", "", "999"},
+		})
+		result, err := Read(data, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Errors) != 0 {
+			t.Fatal(result.Errors)
+		}
+		if len(result.Rows) != 1 || result.Rows[0].SourceRow != 4 || result.Total != "6.000000" {
+			t.Fatalf("unexpected result: %+v", result)
+		}
+		csvData, err := result.CSV()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(csvData), "999") || strings.Contains(string(csvData), "说明") {
+			t.Fatal("skipped rows included in CSV")
+		}
+	})
+	for _, names := range [][2]string{{"代理甲", ""}, {"", "广告甲"}} {
+		result, err := Read(workbook(t, [][]any{headers, {"2026-09-16", "", "", "", names[0], names[1], "任务甲"}}), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(strings.Join(result.Errors, "\n"), "不能为空") {
+			t.Fatalf("missing name not rejected: %+v", result)
+		}
+	}
+	t.Run("all skipped", func(t *testing.T) {
+		result, err := Read(workbook(t, [][]any{headers, {"合计", "", "", "999"}}), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Rows) != 0 || !strings.Contains(strings.Join(result.Errors, "\n"), "没有数据行") {
+			t.Fatalf("unexpected result: %+v", result)
+		}
+	})
+}
+
+func TestFixDisambiguatesBusinessKey(t *testing.T) {
+	headers := []any{"代理商", "广告主", "日期", "任务名称", "结算数", "结算单价", "结算金额", " fix "}
+	for _, tc := range []struct {
+		name, first, second string
+		duplicate           bool
+	}{
+		{"distinct", "A", "B", false},
+		{"same", "A", "A", true},
+		{"empty", "", "", true},
+		{"one empty", "", "A", false},
+		{"leading zero", "001", "1", false},
+		{"case sensitive", "a", "A", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := Read(workbook(t, [][]any{headers,
+				{"代理", "广告", "2026-09-16", "任务", "10", "1", "10", tc.first},
+				{"代理", "广告", "2026-09-16", "任务", "20", "1", "20", tc.second},
+			}), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			duplicate := strings.Contains(strings.Join(result.Errors, " "), "重复")
+			if duplicate != tc.duplicate {
+				t.Fatalf("errors: %v", result.Errors)
+			}
+			if !tc.duplicate && len(result.Errors) != 0 {
+				t.Fatal(result.Errors)
+			}
+			if result.Rows[0].Extra["fix"] != tc.first || result.Rows[1].Extra["fix"] != tc.second {
+				t.Fatal("fix not preserved")
+			}
+			data, err := result.CSV()
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, err := csv.NewReader(strings.NewReader(strings.TrimPrefix(string(data), "\ufeff"))).ReadAll()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rows[0][7] != "fix" || rows[1][7] != tc.first {
+				t.Fatal("CSV fix mismatch")
+			}
+		})
+	}
+}

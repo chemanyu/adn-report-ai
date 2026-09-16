@@ -2,6 +2,7 @@ package report
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,8 +22,8 @@ func (l *ReportLogic) Upload(in types.FileRequest, u types.User) (*types.UploadR
 		return nil, &errcode.Error{Code: 422, Message: "文件校验失败", Details: p.Errors}
 	}
 	operator := strings.TrimSpace(in.Operator)
-	if operator == "" || len([]rune(operator)) > 191 {
-		return nil, errcode.New(400, "请填写运营人员，最多 191 字")
+	if operator == "" {
+		return nil, errcode.New(400, "请填写运营人员")
 	}
 	csvData, err := p.CSV()
 	if err != nil {
@@ -61,6 +62,10 @@ func (l *ReportLogic) Upload(in types.FileRequest, u types.User) (*types.UploadR
 		Hash:   security.Hash(string(in.Data)), Rows: rows,
 	})
 	if err != nil {
+		var resolution *model.IDResolutionError
+		if errors.As(err, &resolution) {
+			return nil, errcode.New(422, resolution.Error())
+		}
 		return nil, err
 	}
 	committed = true

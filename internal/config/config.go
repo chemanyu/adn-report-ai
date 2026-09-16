@@ -12,8 +12,14 @@ import (
 
 type Config struct {
 	rest.RestConf
-	BaseURL    string
-	DataDir    string
+	BaseURL string
+	DataDir string
+	Ding    struct {
+		OpenID string `json:",optional"`
+	}
+	Metadata struct {
+		Endpoint string `json:",optional"`
+	}
 	PostgreSQL struct {
 		DSN    string `json:",optional"`
 		Schema string `json:",default=adn_report"`
@@ -28,6 +34,16 @@ type Config struct {
 }
 
 func (c *Config) Validate() error {
+	c.Ding.OpenID = strings.TrimSpace(c.Ding.OpenID)
+	if strings.ContainsAny(c.Ding.OpenID, "\r\n") {
+		return fmt.Errorf("Ding.OpenID 格式无效")
+	}
+	if c.Metadata.Endpoint != "" {
+		u, e := url.Parse(c.Metadata.Endpoint)
+		if e != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Fragment != "" {
+			return fmt.Errorf("Metadata.Endpoint 必须为有效 HTTP(S) 地址")
+		}
+	}
 	for key, target := range map[string]*string{"DINGTALK_CLIENT_ID": &c.Auth.ClientID, "DINGTALK_CLIENT_SECRET": &c.Auth.ClientSecret, "ADN_ADMIN_PASSWORD": &c.Auth.AdminPassword, "DATABASE_URL": &c.PostgreSQL.DSN} {
 		if v, ok := os.LookupEnv(key); ok {
 			*target = v

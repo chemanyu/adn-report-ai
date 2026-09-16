@@ -26,7 +26,8 @@ const { state, ...actions } = inject('workspace')
     </div>
     <div class="dialog-content">
       <p class="muted small">
-        这里展示当前有效明细；同名文件、同一工作表重复上传会更新此记录，未匹配的旧明细保留。
+        项目 ID 展示该广告主账户关联的全部项目，未匹配 ID
+        显示「—」。这里展示当前有效明细；同名文件、同一工作表重复上传会更新此记录，未匹配的旧明细保留。
       </p>
       <div id="detail-meta" class="detail-meta">
         <template v-if="state.detail"
@@ -98,6 +99,7 @@ const { state, ...actions } = inject('workspace')
       <div class="table-wrap detail-table">
         <DataTable
           id="detail-table"
+          detail
           :columns="state.detail?.upload.columns || []"
           :rows="state.detail?.rows || []"
           :class="{ loading: state.detailLoading }"

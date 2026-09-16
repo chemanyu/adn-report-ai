@@ -9,6 +9,7 @@ import (
 
 	"github.com/chemanyu/adn-report-ai/internal/config"
 	"github.com/chemanyu/adn-report-ai/internal/dingtalk"
+	"github.com/chemanyu/adn-report-ai/internal/metadata"
 	"github.com/chemanyu/adn-report-ai/internal/model"
 )
 
@@ -22,8 +23,12 @@ type ServiceContext struct {
 }
 
 func NewServiceContext(c config.Config, db *sql.DB) *ServiceContext {
+	var resolver model.IDResolver
+	if c.Ding.OpenID != "" {
+		resolver = metadata.New(c.Metadata.Endpoint, c.Ding.OpenID)
+	}
 	return &ServiceContext{
-		Config: c, AuthModel: model.NewAuthModel(db), UploadModel: model.NewUploadModel(db),
+		Config: c, AuthModel: model.NewAuthModel(db), UploadModel: model.NewUploadModelWithResolver(db, resolver),
 		DingTalk: &dingtalk.Client{HTTPClient: &http.Client{Timeout: 15 * time.Second}}, LoginLimiter: &LoginLimiter{}, ImportSlots: make(chan struct{}, 2),
 	}
 }

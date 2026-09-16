@@ -2,6 +2,15 @@
 import { inject } from 'vue'
 import DataTable from './DataTable.vue'
 const { state, ...actions } = inject('workspace')
+function selectSheets(all) {
+  state.selectedSheets = all
+    ? [
+        ...state.selectedSheets,
+        ...state.sheets.filter((sheet) => !state.selectedSheets.includes(sheet)),
+      ]
+    : []
+  actions.preview()
+}
 </script>
 
 <template>
@@ -48,56 +57,97 @@ const { state, ...actions } = inject('workspace')
             ><span class="muted small">支持 .xlsx · 最大 20 MB · 最多 20,000 行</span></label
           >
           <div class="notice">
-            必须包含：<b>代理商、广告主、日期、任务名称、结算数、结算单价、结算金额</b>。结算三列允许为 0 或空，广告主直接作为业务账户，其他列原样保留，首行为表头。
+            必须包含：<b>代理商、广告主、日期、任务名称、结算数、结算单价、结算金额</b>。结算三列允许为
+            0 或空，广告主直接作为业务账户，其他列原样保留，首行为表头。
           </div>
           <div class="notice">
-            仅在本人的数据内，按代理商、广告主、日期、任务名称匹配更新，未匹配则新增；文件名不参与匹配，本次文件未包含的旧记录保留。
+            仅在本人的数据内，按代理商、广告主、日期、任务名称及可选的 fix
+            列匹配更新，未匹配则新增；文件名不参与匹配，本次文件未包含的旧记录保留。若前四项相同的多行需分别保留，请添加小写
+            fix 列并填写不同的稳定标识。
           </div>
-          <label id="sheet-label" v-if="state.sheets.length"
-            >选择工作表<select id="sheet" v-model="state.sheet" @change="actions.preview">
-              <option v-for="sheet in state.sheets" :key="sheet" :value="sheet">
-                {{ sheet }}
-              </option></select
-            ><small class="muted">每次上传一个工作表，避免明细与汇总重复计入。</small></label
-          >
+          <section class="sheet-picker" v-if="state.sheets.length" aria-labelledby="sheet-label">
+            <div class="sheet-toolbar">
+              <div>
+                <strong id="sheet-label">选择工作表</strong>
+                <span class="sheet-count"
+                  >已选 {{ state.selectedSheets.length }} / {{ state.sheets.length }}</span
+                >
+              </div>
+              <div class="sheet-tools">
+                <button
+                  type="button"
+                  @click="selectSheets(true)"
+                  :disabled="state.selectedSheets.length === state.sheets.length"
+                >
+                  全选
+                </button>
+                <button
+                  type="button"
+                  @click="selectSheets(false)"
+                  :disabled="!state.selectedSheets.length"
+                >
+                  清空
+                </button>
+              </div>
+            </div>
+            <div class="sheet-list">
+              <label
+                class="sheet-option"
+                :class="{ selected: state.selectedSheets.includes(sheet) }"
+                v-for="sheet in state.sheets"
+                :key="sheet"
+              >
+                <input
+                  type="checkbox"
+                  v-model="state.selectedSheets"
+                  :value="sheet"
+                  @change="actions.preview"
+                />
+                <span class="sheet-name">{{ sheet }}</span>
+              </label>
+            </div>
+            <small class="sheet-hint muted"
+              >可多选，按勾选顺序入库；相同业务键以后上传的表为准。请勿同时选择明细和汇总表。</small
+            >
+          </section>
           <div class="form-row">
             <label
               >运营人员<input
                 id="operator"
-                maxlength="191"
                 required
                 placeholder="填写负责此次结算的运营人员"
-                v-model="state.operator" /></label
-            >
+                v-model="state.operator"
+            /></label>
           </div>
           <div id="validation" role="status" aria-live="polite">
             <div v-if="state.previewLoading" class="notice">正在读取并校验文件，请稍候…</div>
             <div v-if="state.uploadError" class="notice error">{{ state.uploadError }}</div>
-            <template v-else-if="state.preview"
-              ><div v-if="state.valid" class="notice success">
-                ✓ 校验通过 · {{ actions.number(state.preview.row_count) }} 行数据 · 结算金额
-                {{ actions.money(state.preview.result.total_amount) }} 元
+            <template v-for="preview in state.previews" :key="preview.result.sheet"
+              ><div v-if="preview.valid" class="notice success">
+                ✓ {{ preview.result.sheet }} 校验通过 ·
+                {{ actions.number(preview.row_count) }} 行数据 · 结算金额
+                {{ actions.money(preview.result.total_amount) }} 元
               </div>
               <div v-else class="notice error">
-                <b>校验未通过，请修改 Excel 后重新选择文件。</b>
+                <b>「{{ preview.result.sheet }}」校验未通过，请修改 Excel 后重新选择文件。</b>
                 <ul>
-                  <li v-for="(error, index) in state.preview.result.errors" :key="index">
+                  <li v-for="(error, index) in preview.result.errors" :key="index">
                     {{ error }}
                   </li>
                 </ul>
               </div></template
             >
           </div>
-          <div id="preview-container" v-if="state.preview?.result.rows?.length">
+          <div v-for="preview in state.previews" :key="preview.result.sheet">
             <div class="preview-heading">
-              <h3>数据预览</h3>
+              <h3>{{ preview.result.sheet }} · 数据预览</h3>
               <span class="muted small">前 10 行 · 标准字段已整理</span>
             </div>
             <div class="table-wrap preview-table">
               <DataTable
-                id="preview-table"
-                :columns="state.preview.result.columns"
-                :rows="state.preview.result.rows"
+                :id="`preview-table-${preview.result.sheet}`"
+                :columns="preview.result.columns"
+                :rows="preview.result.rows"
               />
             </div>
           </div>
@@ -129,3 +179,99 @@ const { state, ...actions } = inject('workspace')
     </form>
   </dialog>
 </template>
+
+<style scoped>
+.sheet-picker {
+  margin: 18px 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.sheet-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg);
+}
+.sheet-toolbar strong {
+  font-size: 13px;
+}
+.sheet-count {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sheet-tools {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.sheet-tools button {
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  font-size: 12px;
+}
+.sheet-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 12px;
+}
+.sheet-list .sheet-option {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+  min-width: 0;
+  background: white;
+}
+.sheet-list .sheet-option:hover {
+  border-color: #9ccbbb;
+}
+.sheet-list .sheet-option.selected {
+  border-color: #9ccbbb;
+  background: var(--soft);
+}
+.sheet-list .sheet-option:focus-within {
+  outline: 2px solid var(--green);
+  outline-offset: -2px;
+}
+.sheet-option input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--green);
+}
+.sheet-name {
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.sheet-hint {
+  display: block;
+  padding: 0 14px 12px;
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .sheet-list {
+    grid-template-columns: 1fr;
+  }
+  .sheet-count {
+    display: block;
+    margin-left: 0;
+  }
+}
+</style>

@@ -31,7 +31,7 @@
 - PostgreSQL 启动初始化由 `store.Open` 执行：独立 schema、事务内建表、advisory lock 防并发初始化、自动同步中文注释。`store.Connect` 仅连接不建表。
 - 2026-09-10 已完成 `172.16.3.25:5432/inhouse_ads` 的 `adn_report` 业务迁移：新增 agency/advertiser/task_name、结算三列允许 NULL、删除 source_values、调整索引并同步 41 个字段注释。随后按用户明确要求清空全部旧结算数据：删除 416 条明细和 3 个上传批次，业务表现为 0 批次/0 明细；保留 1 个 ADN 账户、2 个用户及登录配置。自增序列未重置。
 - 迁移前备份 schema 为 `adn_report_backup_20260910_120913`，清空前备份为 `adn_report_backup_20260910_121253`（均在同库，时间戳 UTC，含数据及原字段/约束/索引/序列信息，复制指纹已校验）。34 的 3 个旧 CSV 已移至 `/data/adn-report-ai/backups/data-cleanup-20260910-121253/csv/`，业务 `data/csv/` 已为空。清理时旧 ADN 已停止；随后新版于 20:17:55 启动，模板实测通过。不能回退运行依赖旧表结构的旧版程序。
-- 2026-09-11 当前代码为 6 张表、44 个字段，均有中文注释（移除 ADN 账户及同名文件复用版本尚未迁移业务库）。新增或修改字段必须同步其用途注释。旧脚本 `internal/store/migrations/mysql/` 仅作历史记录，不能在 PostgreSQL 执行。
+- 2026-09-16 当前代码为 7 张表、51 个字段，均有中文注释（本次 ID 与项目映射版本尚未迁移业务库）。新增或修改字段必须同步其用途注释。旧脚本 `internal/store/migrations/mysql/` 仅作历史记录，不能在 PostgreSQL 执行。
 - 数据关系：`users → uploads`，`uploads → settlement_rows/upload_history`；`sessions` 保存会话哈希，`oauth_states` 保存一次性授权状态。
 - `uploads.user_id` 是实际上传身份和权限依据；`uploader_name` 是当时姓名快照；`operator_name` 为可修改的业务负责人，不能用它判断权限。
 - 明细固定字段为 DATE + NUMERIC(24,6)，批次金额 NUMERIC(30,6)；JSONB `extra_fields` 保存七列之外的额外字段，已移除 `source_values`，`columns_json` 保留表头顺序；agency/advertiser/task_name 对应代理商/广告主/任务名称，结算三列允许 NULL。时间戳 TIMESTAMPTZ、连接 UTC，业务日期不做时区转换。
@@ -39,16 +39,28 @@
 
 ## 已确定的业务规则
 
+- 2026-09-16 项目规则修正：按已解析的广告主 ID + 上传任务名称精确查询，只保存该任务映射；project_name 为上传任务名称，未匹配 project_id=0，同名多项目拒绝整次上传。account_projects 新增 mapping_id 主键，允许同账户不同任务各有项目 0；真实项目 ID 仍唯一。明细按账户和任务名关联，未匹配显示 0。-sync-ids 改为查询全部历史账户/任务组合，全部解析成功后同事务重建项目映射及刷新账户 ID，清除旧全账户缓存；升级前停旧实例并备份。本次通过元数据匹配测试、相关 Go 测试/vet、Vue 构建及 PostgreSQL 独立 schema 集成（重复迁移、同账户多任务 0、精确明细关联、历史刷新及事务回滚），测试 schema 已清理；尚未执行业务库迁移、回填或部署。
+
+- 2026-09-16 明细页仅展示七个标准字段及代理商 ID、广告主 ID、项目 ID，不展示 extra_fields（含 fix）。项目 ID 从 account_projects 按广告主及任务名称关联，未匹配显示 0；未知代理商/广告主 ID 显示「—」，API ID 使用字符串避免大整数精度丢失。上传预览及 CSV 保留额外字段。相关 Go 测试/vet、Vue 构建和 PostgreSQL 独立 schema 的 ID/项目关联集成验证通过，测试 schema 已清理；未部署、修改业务库或重启服务。
+
+- 2026-09-16 可选小写 `fix` 列加入文件查重与同用户入库匹配键，保存在 extra_fields，不新增数据库字段；表头首尾空白归一为 fix，值按原始字符串精确匹配，缺列与空字符串等价。原四项相同、fix 不同可并存；结算数不参与匹配。无 fix 仅匹配无 fix/空 fix 的记录，不能覆盖非空 fix 记录；修改 fix 视为新增，遗漏旧行保留。相关 Go 测试/vet、Vue 构建及 PostgreSQL 独立临时 schema 集成通过（fix 分行、修改结算数更新、空值与缺列兼容），测试 schema 已清理；未部署或修改业务库。
+
+- 2026-09-16 数据行的代理商和广告主去首尾空白后同时为空时，整行跳过，不校验该行日期、数字及多余单元格，也不参与预览、入库、CSV 或统计；仅一项为空仍报必填错误。表头必填规则与工作表行位置上限保持，全部跳过仍提示没有数据行。
+
+- 2026-09-16 上传必填名称（代理商、广告主、任务名称）及运营人员取消业务长度限制，数据库改为 TEXT，业务索引使用日期及名称 MD5，并保留原文精确匹配以防哈希碰撞。日期和数字格式/精度校验保留。前端可勾选多个 sheet，各表独立预览，全部校验通过后按勾选顺序调用原单表接口入库，各自保留批次和历史；相同业务键以后上传的表为准。中途失败不回滚已成功工作表，重试只提交剩余项。本次通过相关 Go 单元测试/vet、Vue 生产构建及前端多表校验/失败重试/过期响应测试；未执行真实数据库迁移验证或浏览器验收，未迁移业务库、部署或重启服务。
+
+- 2026-09-16 新增 `settlement_rows.agency_id/advertiser_id`（BIGINT，可空兼容历史）及 `account_projects(project_id,project_name,advertiser_id,updated_at)`。配置 `Ding.OpenID` 后，上传按代理商/账户名称及父子关系唯一解析 ID，再按账户及任务名称精确获取对应项目（含历史已删除）；三组交接别名见 `internal/metadata/client.go`；零匹配对应 ID 写 0（能单独匹配代理商则保留其 ID），任务无匹配项目保存 project_id=0、名称为上传任务名称的映射；多匹配、接口故障或截断拒绝整次上传，映射和明细同事务保存。未配置时新行 ID 为 0，更新不清空已有 ID。预览只校验 Excel；按任务名称精确匹配，无人工映射页面。`-sync-ids` 迁移后一次事务刷新全部历史账户/任务组合，失败不写回填数据，不启动 HTTP；升级前停旧实例并备份。接口默认 `Metadata.Endpoint=http://172.16.3.25:8081/api/v1/execute_sql`。项目映射主键为 mapping_id，真实 project_id 另设部分唯一索引，各账户的不同任务可分别保存项目 0，匹配真实项目时仅替换该任务占位记录。本次未部署、重启服务或修改业务库。
+
 - 2026-09-10 已移除独立 ADN 账户逻辑：广告主即业务账户，上传仅传 file/sheet/operator；删除账户页面/弹窗/API/model 及 account_id 参数。列表/明细显示每批次的 advertisers，统计为 advertiser_count，可搜索广告主和代理商（匹配批次，统计为该批次全部有效行）。一份文件可含多个广告主。迁移将删除 uploads.account_id 和 adn_accounts，保留所有上传及明细；同一用户原不同手工账户的相同业务键在下次更新时合并。登录用户隔离保持不变。本次仅改代码和迁移定义，未操作业务库或运行服务。
 
 
 - 新导入必须有七列：**代理商、广告主、日期、任务名称、结算数、结算单价、结算金额**。前四列为非空业务匹配字段；后三列允许 0 或空（空保留，不推算），不强制金额等于数量乘单价。单文件重复业务键拒绝并提示源行号。
 - 根目录 6 个原始 Excel 示例均缺少部分标准列，因此被拒绝是预期行为。下载页面模板可体验完整流程；不要为了让样例通过而放松校验或修改原文件。
-- 仅 `.xlsx`，20 MB、每工作表最多 20,000 个数据行位置、100 列；首行为表头，每次明确选择一个工作表；跳过空行，拒绝重复或空列名。
+- 仅 `.xlsx`，20 MB、每工作表最多 20,000 个数据行位置、100 列；首行为表头，每次可明确勾选多个工作表；跳过空行，拒绝重复或空列名。
 - 标准数字允许最多 18 位整数、6 位小数及负数调整。Go 有理数精确汇总，不用浮点累计金额；公式只读取文件内缓存值。
 - 2026-09-10 页面明细和上传预览统一优先展示「代理商、广告主、日期、任务名称、结算数、结算单价、结算金额」，不展示 Excel 行号；结算数、结算单价、结算金额统一四舍五入显示两位小数（含统计、列表、预览、明细，使用字符串/BigInt 避免大数精度损失）；日期及额外字段不强制数字化，其他列保留相对顺序。仅调整 `DataTable.vue` 展示顺序，CSV 与数据库仍保留原列顺序和源行号。
 - 额外列保留底层单元格值；CSV 用 UTF-8 BOM、标准日期与六位小数，保留原列顺序。归档在 `data/csv/`，不额外存原始 XLSX。
-- 2026-09-10 已改为业务键逐行更新：仅在同一登录用户的数据内，按代理商 + 广告主 + 日期 + 任务名称匹配，名称去首尾空白、区分大小写且最多 255 字；文件名/工作表不参与。匹配则更新整行（包括以空值清空旧数值和替换 extra_fields），不匹配则新增，本次缺少的旧键保留。管理员上传也不能更新其他人的记录。
+- 2026-09-10 已改为业务键逐行更新：仅在同一登录用户的数据内，按代理商 + 广告主 + 日期 + 任务名称 + 可选 fix 匹配，名称去首尾空白、区分大小写，不设业务长度上限；文件名/工作表不参与。匹配则更新整行（包括以空值清空旧数值和替换 extra_fields），不匹配则新增，本次缺少的旧键保留。管理员上传也不能更新其他人的记录。
 - 2026-09-11 同用户同文件名同工作表复用 uploads 记录（区分大小写），每次成功导入新增 upload_history 保存时间、人员、新增/更新行数和不可变归档信息。文件名/工作表不同新建记录，明细业务键更新及遗漏旧行保留规则不变。列表按 updated_at 排序，默认隐藏空记录，show_empty=true 可查看；详情折叠展示历史，API 返回 reused/inserted_rows/updated_rows。Snapshot 使用只读可重复读事务保证元数据、历史、明细和 CSV 一致。
 - 2026-09-11 启动迁移合并旧同名同工作表批次，保留最新 ID、全部剩余明细与归档引用，旧重复 ID 不再可访问；旧新增/更新数未知则 NULL。表头以最新上传为先补充旧列，取消源行号唯一约束，排序使用 source_row/id，前端不再用源行号作唯一 key。新增文件范围唯一索引，用户事务锁保护复用及历史写入。升级统一停止旧实例并备份数据库；本次未操作业务库或运行服务。
 - `SaveWithRows` 按 schema + 登录用户取得事务 advisory lock，避免同范围多实例并发和重叠键死锁；失败回滚数据库并清理当次新 CSV。迁移添加三个业务名称列、从旧 extra_fields 回填有效值、结算三列改可空、移除 source_values 和旧哈希约束/文件名索引，增加业务查询索引。历史缺键行保留，历史重复键只在明确更新该键时合并；索引不唯一以兼容历史数据。升级统一切换所有实例。
@@ -68,6 +80,7 @@
 | 认证、请求来源、导入并发限制 | `internal/middleware/` |
 | 钉钉、本地登录、会话与管理员判断 | `internal/handler/auth/`、`internal/logic/auth/`、`internal/dingtalk/client.go` |
 | 预览、上传、列表、明细、下载 HTTP/业务处理 | `internal/handler/report/`、`internal/logic/report/`（按功能拆文件） |
+| 账户 ID / 项目查询、历史回填 | `internal/metadata/`、`internal/model/syncids.go`、`main.go` 的 `-sync-ids` |
 | 业务 SQL 与事务 | `internal/model/{authmodel,uploadmodel}.go` |
 | Vue 布局、页面组件、交互和样式 | `web/src/App.vue`、`web/src/components/`、`web/src/composables/useWorkspace.js`、`web/src/style.css` |
 | 目标机部署、systemd、nginx | `deploy.sh`、`scripts/build-linux.sh`、`deploy_test.sh`、`deploy/activate.sh`、`deploy/adn-report-ai.service`、`deploy/nginx-location.conf`、`deploy/nginx-edge-location.conf` |
@@ -93,6 +106,8 @@
 - 新增 `adn-report -f etc/config.yaml -check`：仅校验配置和 PG 连接，不建表、不启动 HTTP。子路径变更已通过 Vue 构建、Go 测试/vet，补充 `TestBaseURLPrefix` 与 `TestReverseProxyPrefix` 验证 URL、Origin、Cookie 和回跳。部署脚本语法检查及实际文件暂存流程通过。
 
 ## 命令与已有验证
+
+- 2026-09-16 ID/项目映射版本通过相关 Go 测试与 vet、真实 PostgreSQL 独立 schema 测试（重复迁移、历史回填、同名更新、零值覆盖旧 ID、多个账户项目 0 占位、零值回填重试、映射及历史事务回滚，测试 schema 自动清理），并用私有配置 OpenID 只读实测示例账户及项目查询通过。未迁移业务库、未部署或重启服务，未更新 Linux 预编译产物。
 
 - 2026-09-11 同名文件复用版本已通过 Vue 生产构建、相关 Go 测试/vet 及真实 PostgreSQL 独立 schema 集成：同 ID 复用、新增与更新计数、遗漏旧行保留、源行号重叠、额外列/CSV 保留、空记录筛选、历史合并及重复迁移、权限隔离、八实例并发与失败回滚。测试 schema 自动清理；Linux amd64 产物已更新。本次未执行浏览器验收，未提交、部署或迁移业务库。
 

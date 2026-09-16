@@ -18,16 +18,19 @@ var Required = []string{"代理商", "广告主", "日期", "任务名称", "结
 const MaxRows = 20000
 
 type Row struct {
-	Agency     string            `json:"agency"`
-	Advertiser string            `json:"advertiser"`
-	TaskName   string            `json:"task_name"`
-	SourceRow  int               `json:"source_row"`
-	Date       string            `json:"date"`
-	Count      string            `json:"count"`
-	Price      string            `json:"price"`
-	Amount     string            `json:"amount"`
-	Extra      map[string]string `json:"extra"`
-	Values     []string          `json:"values"`
+	AgencyID     string            `json:"agency_id,omitempty"`
+	AdvertiserID string            `json:"advertiser_id,omitempty"`
+	ProjectIDs   []string          `json:"project_ids,omitempty"`
+	Agency       string            `json:"agency"`
+	Advertiser   string            `json:"advertiser"`
+	TaskName     string            `json:"task_name"`
+	SourceRow    int               `json:"source_row"`
+	Date         string            `json:"date"`
+	Count        string            `json:"count"`
+	Price        string            `json:"price"`
+	Amount       string            `json:"amount"`
+	Extra        map[string]string `json:"extra"`
+	Values       []string          `json:"values"`
 }
 type Result struct {
 	Sheets   []string `json:"sheets"`
@@ -88,6 +91,9 @@ func Read(data []byte, sheet string) (*Result, error) {
 	positions := map[string]int{}
 	for i, h := range headers {
 		key := strings.TrimSpace(h)
+		if key == "fix" {
+			headers[i] = key
+		}
 		if key == "" {
 			out.Errors = append(out.Errors, fmt.Sprintf("第 %d 列缺少列名", i+1))
 			continue
@@ -106,7 +112,7 @@ func Read(data []byte, sheet string) (*Result, error) {
 		return out, nil
 	}
 	total := new(big.Rat)
-	seen := map[[4]string]int{}
+	seen := map[[5]string]int{}
 	line := 1
 	for it.Next() {
 		line++
@@ -117,22 +123,16 @@ func Read(data []byte, sheet string) (*Result, error) {
 		if e != nil {
 			return nil, e
 		}
-		empty := true
-		for _, v := range cells {
-			if strings.TrimSpace(v) != "" {
-				empty = false
-				break
-			}
-		}
-		if empty {
+		source := make([]string, len(headers))
+		copy(source, cells)
+		// Ignore notes, totals and other non-business rows before validating their cells.
+		if strings.TrimSpace(source[positions["代理商"]]) == "" && strings.TrimSpace(source[positions["广告主"]]) == "" {
 			continue
 		}
 		if len(cells) > len(headers) {
 			out.Errors = append(out.Errors, fmt.Sprintf("第 %d 行存在无列名的数据", line))
 			break
 		}
-		source := make([]string, len(headers))
-		copy(source, cells)
 		row := Row{SourceRow: line, Extra: map[string]string{}, Values: append([]string(nil), source...)}
 		for i, v := range source {
 			if len(v) > 32767 {
@@ -156,8 +156,8 @@ func Read(data []byte, sheet string) (*Result, error) {
 			{"代理商", &row.Agency}, {"广告主", &row.Advertiser}, {"任务名称", &row.TaskName},
 		} {
 			value := strings.TrimSpace(source[positions[field.key]])
-			if value == "" || len([]rune(value)) > 255 {
-				out.Errors = append(out.Errors, fmt.Sprintf("第 %d 行「%s」：不能为空，最多 255 字", line, field.key))
+			if value == "" {
+				out.Errors = append(out.Errors, fmt.Sprintf("第 %d 行「%s」：不能为空", line, field.key))
 			}
 			*field.target = value
 			row.Values[positions[field.key]] = value
@@ -180,9 +180,9 @@ func Read(data []byte, sheet string) (*Result, error) {
 		}
 		row.Values[positions["日期"]] = row.Date
 		if row.Agency != "" && row.Advertiser != "" && row.Date != "" && row.TaskName != "" {
-			key := [4]string{row.Agency, row.Advertiser, row.Date, row.TaskName}
+			key := [5]string{row.Agency, row.Advertiser, row.Date, row.TaskName, row.Extra["fix"]}
 			if first, exists := seen[key]; exists {
-				out.Errors = append(out.Errors, fmt.Sprintf("第 %d 行与第 %d 行的代理商、广告主、日期、任务名称重复，请合并或修正后上传", line, first))
+				out.Errors = append(out.Errors, fmt.Sprintf("第 %d 行与第 %d 行的代理商、广告主、日期、任务名称及 fix 重复，请合并或修正后上传", line, first))
 			} else {
 				seen[key] = line
 			}

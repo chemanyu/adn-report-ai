@@ -42,7 +42,7 @@ func detailRows(upload model.Upload, rows []model.SettlementRow) ([]importer.Row
 	}
 	result := make([]importer.Row, 0, len(rows))
 	for _, row := range rows {
-		out := importer.Row{SourceRow: row.SourceRow, Agency: row.Agency, Advertiser: row.Advertiser, TaskName: row.TaskName, Date: row.Date, Count: row.Count, Price: row.Price, Amount: row.Amount, Extra: row.Extra, Values: make([]string, len(columns))}
+		out := importer.Row{AgencyID: strconv.FormatInt(row.AgencyID, 10), AdvertiserID: strconv.FormatInt(row.AdvertiserID, 10), ProjectIDs: row.ProjectIDs, SourceRow: row.SourceRow, Agency: row.Agency, Advertiser: row.Advertiser, TaskName: row.TaskName, Date: row.Date, Count: row.Count, Price: row.Price, Amount: row.Amount, Extra: row.Extra, Values: make([]string, len(columns))}
 		for i, col := range columns {
 			switch strings.TrimSpace(col) {
 			case "代理商":

@@ -15,3 +15,8 @@ Auth:
   # 可选的本地管理员入口；留空密码则禁用。生产环境建议仅使用钉钉。
   AdminUsername: admin
   AdminPassword: ""
+# 配置后上传自动解析 ID；未配置保持旧导入行为。
+Ding:
+  OpenID: ""
+Metadata:
+  Endpoint: http://172.16.3.25:8081/api/v1/execute_sql
